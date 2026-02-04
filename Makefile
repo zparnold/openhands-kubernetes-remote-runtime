@@ -1,10 +1,11 @@
-.PHONY: build test clean docker-build docker-push deploy
+.PHONY: build test clean docker-build docker-push deploy coverage test-verbose
 
 # Variables
 BINARY_NAME=runtime-api
 DOCKER_IMAGE?=ghcr.io/zparnold/openhands-kubernetes-remote-runtime
 VERSION?=latest
 NAMESPACE?=openhands
+COVERAGE_THRESHOLD?=25
 
 # Build the Go binary
 build:
@@ -14,9 +15,30 @@ build:
 test:
 	go test -v ./...
 
+# Run tests with verbose output
+test-verbose:
+	go test -v -race ./...
+
+# Run tests with coverage
+coverage:
+	go test -v -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	go tool cover -html=coverage.out -o coverage.html
+
+# Check coverage threshold
+coverage-check: coverage
+	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
+	if [ $$(echo "$$COVERAGE < $(COVERAGE_THRESHOLD)" | bc) -eq 1 ]; then \
+		echo "Coverage $$COVERAGE% is below threshold $(COVERAGE_THRESHOLD)%"; \
+		exit 1; \
+	else \
+		echo "Coverage $$COVERAGE% meets threshold $(COVERAGE_THRESHOLD)%"; \
+	fi
+
 # Clean build artifacts
 clean:
 	rm -f $(BINARY_NAME)
+	rm -f coverage.out coverage.html
 	go clean
 
 # Build Docker image
@@ -55,3 +77,7 @@ deps:
 # Generate API documentation
 docs:
 	@echo "API Documentation available in README.md"
+
+# Pre-commit checks (run before committing)
+pre-commit: fmt lint test coverage-check
+	@echo "Pre-commit checks passed!"
