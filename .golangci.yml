@@ -1,58 +1,56 @@
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - shadow
-      - fieldalignment  # Disable struct field alignment checks
-  gocyclo:
-    min-complexity: 20  # Increase complexity threshold
-  dupl:
-    threshold: 120  # Increase duplication threshold
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-
+version: "2"
+run:
+  modules-download-mode: readonly
+  tests: true
 linters:
   enable:
-    - gofmt
-    - govet
-    - errcheck
-    - staticcheck
-    - unused
-    - gosimple
-    - ineffassign
-    - typecheck
-    - gocyclo
     - dupl
     - goconst
+    - gocyclo
+    - gosec
     - misspell
     - unconvert
-    - gosec
   disable:
-    - structcheck  # Deprecated
-    - varcheck  # Deprecated
-    - deadcode  # Deprecated
-    - ifshort  # Deprecated
-    - exportloopref  # Deprecated (Go 1.22+)
-    - unparam  # Too strict for this codebase
-    - nakedret  # Acceptable for small functions
-    - prealloc  # Optimization not critical
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - dupl
-        - gosec
-        - gocyclo
-        - govet
-
-run:
-  timeout: 5m
-  tests: true
-  modules-download-mode: readonly
-
-output:
-  print-issued-lines: true
-  print-linter-name: true
-  sort-results: true
+    - nakedret
+    - prealloc
+    - unparam
+  settings:
+    dupl:
+      threshold: 120
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gocyclo:
+      min-complexity: 20
+    govet:
+      disable:
+        - shadow
+        - fieldalignment
+      enable-all: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - dupl
+          - gocyclo
+          - gosec
+          - govet
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

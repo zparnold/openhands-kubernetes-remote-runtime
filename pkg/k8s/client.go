@@ -55,6 +55,18 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}, nil
 }
 
+// portToInt32 converts a port number to int32 for Kubernetes APIs.
+// Valid port range is 1-65535; values outside this range are clamped to avoid overflow (gosec G115).
+func portToInt32(port int) int32 {
+	if port < 1 {
+		return 1
+	}
+	if port > 65535 {
+		return 65535
+	}
+	return int32(port)
+}
+
 // CreateSandbox creates a complete sandbox environment (pod, service, ingress)
 func (c *Client) CreateSandbox(ctx context.Context, req *types.StartRequest, runtimeInfo *state.RuntimeInfo) error {
 	// Create Pod
@@ -160,13 +172,13 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Ports: []corev1.ContainerPort{
 						//nolint:gosec // Port values are validated to be in valid range (1-65535)
-						{ContainerPort: int32(c.config.AgentServerPort), Name: "agent", Protocol: corev1.ProtocolTCP},
+						{ContainerPort: portToInt32(c.config.AgentServerPort), Name: "agent", Protocol: corev1.ProtocolTCP},
 						//nolint:gosec // Port values are validated to be in valid range (1-65535)
-						{ContainerPort: int32(c.config.VSCodePort), Name: "vscode", Protocol: corev1.ProtocolTCP},
+						{ContainerPort: portToInt32(c.config.VSCodePort), Name: "vscode", Protocol: corev1.ProtocolTCP},
 						//nolint:gosec // Port values are validated to be in valid range (1-65535)
-						{ContainerPort: int32(c.config.Worker1Port), Name: "worker1", Protocol: corev1.ProtocolTCP},
+						{ContainerPort: portToInt32(c.config.Worker1Port), Name: "worker1", Protocol: corev1.ProtocolTCP},
 						//nolint:gosec // Port values are validated to be in valid range (1-65535)
-						{ContainerPort: int32(c.config.Worker2Port), Name: "worker2", Protocol: corev1.ProtocolTCP},
+						{ContainerPort: portToInt32(c.config.Worker2Port), Name: "worker2", Protocol: corev1.ProtocolTCP},
 					},
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
@@ -226,27 +238,27 @@ func (c *Client) createService(ctx context.Context, runtimeInfo *state.RuntimeIn
 				{
 					Name: "agent",
 					//nolint:gosec // Port values are validated to be in valid range (1-65535)
-					Port:       int32(c.config.AgentServerPort),
+					Port:       portToInt32(c.config.AgentServerPort),
 					TargetPort: intstr.FromInt(c.config.AgentServerPort),
 					Protocol:   corev1.ProtocolTCP,
 				},
 				{
 					Name: "vscode",
 					//nolint:gosec // Port values are validated to be in valid range (1-65535)
-					Port:       int32(c.config.VSCodePort),
+					Port:       portToInt32(c.config.VSCodePort),
 					TargetPort: intstr.FromInt(c.config.VSCodePort),
 					Protocol:   corev1.ProtocolTCP,
 				},
 				{
 					Name: "worker1",
 					//nolint:gosec // Port values are validated to be in valid range (1-65535)
-					Port:       int32(c.config.Worker1Port),
+					Port:       portToInt32(c.config.Worker1Port),
 					TargetPort: intstr.FromInt(c.config.Worker1Port),
 					Protocol:   corev1.ProtocolTCP,
 				},
 				{
 					Name:       "worker2",
-					Port:       int32(c.config.Worker2Port),
+					Port:       portToInt32(c.config.Worker2Port),
 					TargetPort: intstr.FromInt(c.config.Worker2Port),
 					Protocol:   corev1.ProtocolTCP,
 				},
@@ -304,7 +316,7 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 										Service: &networkingv1.IngressServiceBackend{
 											Name: runtimeInfo.ServiceName,
 											Port: networkingv1.ServiceBackendPort{
-												Number: int32(c.config.AgentServerPort),
+												Number: portToInt32(c.config.AgentServerPort),
 											},
 										},
 									},
@@ -326,7 +338,7 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 										Service: &networkingv1.IngressServiceBackend{
 											Name: runtimeInfo.ServiceName,
 											Port: networkingv1.ServiceBackendPort{
-												Number: int32(c.config.VSCodePort),
+												Number: portToInt32(c.config.VSCodePort),
 											},
 										},
 									},
@@ -348,7 +360,7 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 										Service: &networkingv1.IngressServiceBackend{
 											Name: runtimeInfo.ServiceName,
 											Port: networkingv1.ServiceBackendPort{
-												Number: int32(c.config.Worker1Port),
+												Number: portToInt32(c.config.Worker1Port),
 											},
 										},
 									},
@@ -370,7 +382,7 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 										Service: &networkingv1.IngressServiceBackend{
 											Name: runtimeInfo.ServiceName,
 											Port: networkingv1.ServiceBackendPort{
-												Number: int32(c.config.Worker2Port),
+												Number: portToInt32(c.config.Worker2Port),
 											},
 										},
 									},
