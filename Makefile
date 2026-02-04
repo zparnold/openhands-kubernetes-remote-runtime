@@ -28,7 +28,7 @@ coverage:
 # Check coverage threshold
 coverage-check: coverage
 	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
-	if [ $$(echo "$$COVERAGE < $(COVERAGE_THRESHOLD)" | bc) -eq 1 ]; then \
+	if awk -v cov="$$COVERAGE" -v thr="$(COVERAGE_THRESHOLD)" 'BEGIN {exit !(cov < thr)}'; then \
 		echo "Coverage $$COVERAGE% is below threshold $(COVERAGE_THRESHOLD)%"; \
 		exit 1; \
 	else \
