@@ -7,27 +7,27 @@ import (
 
 type Config struct {
 	// Server configuration
-	ServerPort     string
-	APIKey         string
-	LogLevel       string
-	
+	ServerPort string
+	APIKey     string
+	LogLevel   string
+
 	// Kubernetes configuration
-	Namespace      string
-	IngressClass   string
-	BaseDomain     string
-	
+	Namespace    string
+	IngressClass string
+	BaseDomain   string
+
 	// Container configuration
 	RegistryPrefix string
 	DefaultImage   string
-	
+
 	// Pod configuration
-	AgentServerPort  int
-	VSCodePort       int
-	Worker1Port      int
-	Worker2Port      int
-	
+	AgentServerPort int
+	VSCodePort      int
+	Worker1Port     int
+	Worker2Port     int
+
 	// App server configuration
-	AppServerURL    string
+	AppServerURL       string
 	AppServerPublicURL string
 }
 

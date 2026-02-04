@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -136,7 +136,7 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 	if resourceFactor == 0 {
 		resourceFactor = 1.0
 	}
-	
+
 	cpuRequest := fmt.Sprintf("%.0fm", 1000*resourceFactor)
 	memoryRequest := fmt.Sprintf("%.0fMi", 2048*resourceFactor)
 	cpuLimit := fmt.Sprintf("%.0fm", 2000*resourceFactor)
@@ -263,10 +263,10 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 
 	// Create ingress for agent server (main subdomain)
 	agentHost := fmt.Sprintf("%s.%s", runtimeInfo.SessionID, c.config.BaseDomain)
-	
+
 	// Create ingress for vscode (vscode- prefix)
 	vscodeHost := fmt.Sprintf("vscode-%s.%s", runtimeInfo.SessionID, c.config.BaseDomain)
-	
+
 	// Create ingress for workers
 	worker1Host := fmt.Sprintf("work-1-%s.%s", runtimeInfo.SessionID, c.config.BaseDomain)
 	worker2Host := fmt.Sprintf("work-2-%s.%s", runtimeInfo.SessionID, c.config.BaseDomain)
@@ -277,7 +277,7 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 			Namespace: c.namespace,
 			Labels:    labels,
 			Annotations: map[string]string{
-				"nginx.ingress.kubernetes.io/ssl-redirect": "true",
+				"nginx.ingress.kubernetes.io/ssl-redirect":       "true",
 				"nginx.ingress.kubernetes.io/websocket-services": runtimeInfo.ServiceName,
 			},
 		},
@@ -399,14 +399,14 @@ func (c *Client) GetPodStatus(ctx context.Context, podName string) (*PodStatusIn
 	// Check container statuses
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		restartCount += int(containerStatus.RestartCount)
-		
+
 		if containerStatus.State.Waiting != nil {
 			if containerStatus.State.Waiting.Reason == "CrashLoopBackOff" {
 				status = types.PodStatusCrashLoopBackOff
 			}
 			restartReasons = append(restartReasons, containerStatus.State.Waiting.Reason)
 		}
-		
+
 		if containerStatus.State.Terminated != nil {
 			restartReasons = append(restartReasons, containerStatus.State.Terminated.Reason)
 		}
@@ -522,15 +522,14 @@ func (c *Client) WaitForPodReady(ctx context.Context, podName string, timeout ti
 			if err != nil {
 				return err
 			}
-			
+
 			if statusInfo.Status == types.PodStatusReady {
 				return nil
 			}
-			
+
 			if statusInfo.Status == types.PodStatusFailed || statusInfo.Status == types.PodStatusCrashLoopBackOff {
 				return fmt.Errorf("pod failed with status: %s", statusInfo.Status)
 			}
 		}
 	}
 }
-

@@ -73,14 +73,14 @@ func TestStartRequest(t *testing.T) {
 
 func TestRuntimeResponse(t *testing.T) {
 	resp := RuntimeResponse{
-		RuntimeID:     "runtime-123",
-		SessionID:     "session-456",
-		URL:           "https://test.example.com",
-		SessionAPIKey: "key-789",
-		Status:        StatusRunning,
-		PodStatus:     PodStatusReady,
-		WorkHosts:     map[string]int{"host1": 8080, "host2": 8081},
-		RestartCount:  2,
+		RuntimeID:      "runtime-123",
+		SessionID:      "session-456",
+		URL:            "https://test.example.com",
+		SessionAPIKey:  "key-789",
+		Status:         StatusRunning,
+		PodStatus:      PodStatusReady,
+		WorkHosts:      map[string]int{"host1": 8080, "host2": 8081},
+		RestartCount:   2,
 		RestartReasons: []string{"OOMKilled", "Error"},
 	}
 

@@ -21,7 +21,7 @@ func TestNewStateManager(t *testing.T) {
 
 func TestAddRuntime(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	info := &RuntimeInfo{
 		RuntimeID: "runtime-123",
 		SessionID: "session-456",
@@ -44,7 +44,7 @@ func TestAddRuntime(t *testing.T) {
 
 func TestGetRuntimeByID(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	info := &RuntimeInfo{
 		RuntimeID: "runtime-123",
 		SessionID: "session-456",
@@ -71,7 +71,7 @@ func TestGetRuntimeByID(t *testing.T) {
 
 func TestGetRuntimeBySessionID(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	info := &RuntimeInfo{
 		RuntimeID: "runtime-123",
 		SessionID: "session-456",
@@ -98,7 +98,7 @@ func TestGetRuntimeBySessionID(t *testing.T) {
 
 func TestUpdateRuntime(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	info := &RuntimeInfo{
 		RuntimeID: "runtime-123",
 		SessionID: "session-456",
@@ -133,7 +133,7 @@ func TestUpdateRuntime(t *testing.T) {
 
 func TestDeleteRuntime(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	info := &RuntimeInfo{
 		RuntimeID: "runtime-123",
 		SessionID: "session-456",
@@ -191,7 +191,7 @@ func TestListRuntimes(t *testing.T) {
 
 func TestGetRuntimesBySessionIDs(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	sm.AddRuntime(&RuntimeInfo{RuntimeID: "runtime-1", SessionID: "session-1"})
 	sm.AddRuntime(&RuntimeInfo{RuntimeID: "runtime-2", SessionID: "session-2"})
 	sm.AddRuntime(&RuntimeInfo{RuntimeID: "runtime-3", SessionID: "session-3"})
@@ -222,7 +222,7 @@ func TestGetRuntimesBySessionIDs(t *testing.T) {
 
 func TestConcurrentAccess(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	// Test concurrent writes
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {

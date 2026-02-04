@@ -8,12 +8,12 @@ import (
 func TestLoadConfig(t *testing.T) {
 	// Save original env vars
 	origEnv := map[string]string{
-		"SERVER_PORT":          os.Getenv("SERVER_PORT"),
-		"API_KEY":              os.Getenv("API_KEY"),
-		"NAMESPACE":            os.Getenv("NAMESPACE"),
-		"BASE_DOMAIN":          os.Getenv("BASE_DOMAIN"),
-		"REGISTRY_PREFIX":      os.Getenv("REGISTRY_PREFIX"),
-		"AGENT_SERVER_PORT":    os.Getenv("AGENT_SERVER_PORT"),
+		"SERVER_PORT":       os.Getenv("SERVER_PORT"),
+		"API_KEY":           os.Getenv("API_KEY"),
+		"NAMESPACE":         os.Getenv("NAMESPACE"),
+		"BASE_DOMAIN":       os.Getenv("BASE_DOMAIN"),
+		"REGISTRY_PREFIX":   os.Getenv("REGISTRY_PREFIX"),
+		"AGENT_SERVER_PORT": os.Getenv("AGENT_SERVER_PORT"),
 	}
 
 	// Restore env vars after test
@@ -91,11 +91,11 @@ func TestLoadConfig(t *testing.T) {
 
 func TestGetEnv(t *testing.T) {
 	tests := []struct {
-		name         string
-		key          string
-		defaultVal   string
-		envValue     string
-		expected     string
+		name       string
+		key        string
+		defaultVal string
+		envValue   string
+		expected   string
 	}{
 		{"Use default when env not set", "TEST_KEY_1", "default", "", "default"},
 		{"Use env value when set", "TEST_KEY_2", "default", "custom", "custom"},

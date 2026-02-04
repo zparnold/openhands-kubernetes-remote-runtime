@@ -30,10 +30,10 @@ type ResumeRequest struct {
 type RuntimeStatus string
 
 const (
-	StatusRunning          RuntimeStatus = "running"
-	StatusPaused           RuntimeStatus = "paused"
-	StatusStopped          RuntimeStatus = "stopped"
-	StatusPending          RuntimeStatus = "pending"
+	StatusRunning RuntimeStatus = "running"
+	StatusPaused  RuntimeStatus = "paused"
+	StatusStopped RuntimeStatus = "stopped"
+	StatusPending RuntimeStatus = "pending"
 )
 
 // PodStatus represents the Kubernetes pod status
@@ -51,15 +51,15 @@ const (
 
 // RuntimeResponse represents the response from runtime operations
 type RuntimeResponse struct {
-	RuntimeID      string            `json:"runtime_id"`
-	SessionID      string            `json:"session_id"`
-	URL            string            `json:"url"`
-	SessionAPIKey  string            `json:"session_api_key,omitempty"`
-	Status         RuntimeStatus     `json:"status"`
-	PodStatus      PodStatus         `json:"pod_status"`
-	WorkHosts      map[string]int    `json:"work_hosts,omitempty"`
-	RestartCount   int               `json:"restart_count,omitempty"`
-	RestartReasons []string          `json:"restart_reasons,omitempty"`
+	RuntimeID      string         `json:"runtime_id"`
+	SessionID      string         `json:"session_id"`
+	URL            string         `json:"url"`
+	SessionAPIKey  string         `json:"session_api_key,omitempty"`
+	Status         RuntimeStatus  `json:"status"`
+	PodStatus      PodStatus      `json:"pod_status"`
+	WorkHosts      map[string]int `json:"work_hosts,omitempty"`
+	RestartCount   int            `json:"restart_count,omitempty"`
+	RestartReasons []string       `json:"restart_reasons,omitempty"`
 }
 
 // ListResponse represents the response from list operations

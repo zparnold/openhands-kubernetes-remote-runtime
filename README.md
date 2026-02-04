@@ -1,5 +1,9 @@
 # OpenHands Kubernetes Remote Runtime
 
+[![CI](https://github.com/zparnold/openhands-kubernetes-remote-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/zparnold/openhands-kubernetes-remote-runtime/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/zparnold/openhands-kubernetes-remote-runtime)](https://goreportcard.com/report/github.com/zparnold/openhands-kubernetes-remote-runtime)
+[![codecov](https://codecov.io/gh/zparnold/openhands-kubernetes-remote-runtime/branch/main/graph/badge.svg)](https://codecov.io/gh/zparnold/openhands-kubernetes-remote-runtime)
+
 A Kubernetes-compatible runtime service for OpenHands that provisions sandbox pods for agent sessions. This service implements the OpenHands Remote Runtime API contract and supports Kubernetes versions 1.30+.
 
 ## Features

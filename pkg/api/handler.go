@@ -236,7 +236,7 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 // ListRuntimes handles GET /list
 func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 	runtimes := h.stateMgr.ListRuntimes()
-	
+
 	responses := make([]types.RuntimeResponse, 0, len(runtimes))
 	for _, runtime := range runtimes {
 		// Update pod status from Kubernetes
@@ -247,7 +247,7 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 			runtime.RestartReasons = statusInfo.RestartReasons
 			_ = h.stateMgr.UpdateRuntime(runtime)
 		}
-		
+
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
 
@@ -323,7 +323,7 @@ func (h *Handler) GetSessionsBatch(w http.ResponseWriter, r *http.Request) {
 			runtime.RestartReasons = statusInfo.RestartReasons
 			_ = h.stateMgr.UpdateRuntime(runtime)
 		}
-		
+
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
 

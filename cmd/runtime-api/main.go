@@ -35,7 +35,7 @@ func main() {
 
 	// Setup router
 	router := mux.NewRouter()
-	
+
 	// Apply middlewares
 	router.Use(handler.LoggingMiddleware)
 	router.Use(handler.AuthMiddleware)
@@ -64,7 +64,7 @@ func main() {
 	log.Printf("Namespace: %s", cfg.Namespace)
 	log.Printf("Base Domain: %s", cfg.BaseDomain)
 	log.Printf("Registry Prefix: %s", cfg.RegistryPrefix)
-	
+
 	if err := http.ListenAndServe(addr, router); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}

@@ -25,14 +25,14 @@ func setupTestHandler() (*Handler, *state.StateManager) {
 		DefaultImage:    "test-image",
 	}
 	stateMgr := state.NewStateManager()
-	
+
 	// Create handler without k8s client for tests that don't need it
 	handler := &Handler{
 		k8sClient: nil,
 		stateMgr:  stateMgr,
 		config:    cfg,
 	}
-	
+
 	return handler, stateMgr
 }
 
@@ -42,17 +42,17 @@ func TestAuthMiddleware(t *testing.T) {
 	t.Run("Valid API key", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.Header.Set("X-API-Key", "test-api-key")
-		
+
 		rr := httptest.NewRecorder()
-		
+
 		nextCalled := false
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			nextCalled = true
 			w.WriteHeader(http.StatusOK)
 		})
-		
+
 		handler.AuthMiddleware(next).ServeHTTP(rr, req)
-		
+
 		if !nextCalled {
 			t.Error("Next handler should have been called")
 		}
@@ -64,14 +64,14 @@ func TestAuthMiddleware(t *testing.T) {
 	t.Run("Missing API key", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		rr := httptest.NewRecorder()
-		
+
 		nextCalled := false
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			nextCalled = true
 		})
-		
+
 		handler.AuthMiddleware(next).ServeHTTP(rr, req)
-		
+
 		if nextCalled {
 			t.Error("Next handler should not have been called")
 		}
@@ -84,14 +84,14 @@ func TestAuthMiddleware(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.Header.Set("X-API-Key", "wrong-key")
 		rr := httptest.NewRecorder()
-		
+
 		nextCalled := false
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			nextCalled = true
 		})
-		
+
 		handler.AuthMiddleware(next).ServeHTTP(rr, req)
-		
+
 		if nextCalled {
 			t.Error("Next handler should not have been called")
 		}
@@ -208,7 +208,7 @@ func TestGetRuntime(t *testing.T) {
 			t.Errorf("Expected status 404, got %d", rr.Code)
 		}
 	})
-	
+
 	// Note: Testing with existing runtime would require k8s client mock
 	// which is skipped for now
 }
@@ -234,7 +234,7 @@ func TestGetSession(t *testing.T) {
 			t.Errorf("Expected status 404, got %d", rr.Code)
 		}
 	})
-	
+
 	// Note: Testing with existing session would require k8s client mock
 }
 
@@ -255,7 +255,7 @@ func TestGetSessionsBatch(t *testing.T) {
 			t.Errorf("Expected status 400, got %d", rr.Code)
 		}
 	})
-	
+
 	// Note: Testing with valid IDs would require k8s client mock
 }
 

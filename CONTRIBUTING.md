@@ -76,15 +76,94 @@ make run
 
 ### Unit Tests
 
-Write unit tests for new functionality:
+Write unit tests for new functionality. All packages should have corresponding test files:
 
 ```bash
 # Run all tests
 make test
 
+# Run tests with verbose output
+make test-verbose
+
+# Run tests with coverage
+make coverage
+
 # Run specific package tests
 go test -v ./pkg/api
+go test -v ./pkg/state
 ```
+
+### Test Coverage
+
+We maintain a minimum test coverage threshold of 25%. Check coverage with:
+
+```bash
+# Generate coverage report
+make coverage
+
+# Check if coverage meets threshold
+make coverage-check
+
+# View coverage in browser
+make coverage
+open coverage.html
+```
+
+Current coverage by package:
+- `pkg/config`: 100% ✅
+- `pkg/state`: 100% ✅
+- `pkg/api`: ~28%
+- `pkg/k8s`: 0% (requires Kubernetes mocking)
+- Overall: ~26%
+
+### Writing Tests
+
+Follow these guidelines when writing tests:
+
+1. **Test file naming**: `*_test.go` in the same package
+2. **Test function naming**: `TestFunctionName` or `Test_DescriptiveScenario`
+3. **Table-driven tests**: Use for multiple test cases
+4. **Mocking**: Create mock implementations for external dependencies
+5. **Coverage**: Aim for high coverage on new code
+
+Example test structure:
+
+```go
+func TestFeature(t *testing.T) {
+    tests := []struct {
+        name     string
+        input    string
+        expected string
+    }{
+        {"case 1", "input1", "expected1"},
+        {"case 2", "input2", "expected2"},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result := Feature(tt.input)
+            if result != tt.expected {
+                t.Errorf("Expected %s, got %s", tt.expected, result)
+            }
+        })
+    }
+}
+```
+
+### Pre-commit Checks
+
+Before committing, run all pre-commit checks:
+
+```bash
+# Format, lint, test, and check coverage
+make pre-commit
+```
+
+This will:
+1. Format code with `gofmt`
+2. Run linter (`golangci-lint`)
+3. Run all tests
+4. Verify coverage meets threshold
 
 ### Integration Tests
 
@@ -97,6 +176,18 @@ make deploy
 # Run manual tests
 curl -H "X-API-Key: test-key" http://localhost:8080/health
 ```
+
+### CI/CD Pipeline
+
+All pull requests must pass:
+- ✅ Linter checks (golangci-lint)
+- ✅ Unit tests with race detection
+- ✅ Build verification
+- ✅ Coverage threshold (minimum 25%)
+
+The CI pipeline runs automatically on:
+- Push to `main` or `develop` branches
+- Pull requests to `main` or `develop` branches
 
 ## Submitting Changes
 
