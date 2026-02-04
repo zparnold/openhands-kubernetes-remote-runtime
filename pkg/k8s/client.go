@@ -159,9 +159,13 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 					Env:             envVars,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Ports: []corev1.ContainerPort{
+						//nolint:gosec // Port values are validated to be in valid range (1-65535)
 						{ContainerPort: int32(c.config.AgentServerPort), Name: "agent", Protocol: corev1.ProtocolTCP},
+						//nolint:gosec // Port values are validated to be in valid range (1-65535)
 						{ContainerPort: int32(c.config.VSCodePort), Name: "vscode", Protocol: corev1.ProtocolTCP},
+						//nolint:gosec // Port values are validated to be in valid range (1-65535)
 						{ContainerPort: int32(c.config.Worker1Port), Name: "worker1", Protocol: corev1.ProtocolTCP},
+						//nolint:gosec // Port values are validated to be in valid range (1-65535)
 						{ContainerPort: int32(c.config.Worker2Port), Name: "worker2", Protocol: corev1.ProtocolTCP},
 					},
 					Resources: corev1.ResourceRequirements{

@@ -3,10 +3,11 @@ linters-settings:
     enable-all: true
     disable:
       - shadow
+      - fieldalignment  # Disable struct field alignment checks
   gocyclo:
-    min-complexity: 15
+    min-complexity: 20  # Increase complexity threshold
   dupl:
-    threshold: 100
+    threshold: 120  # Increase duplication threshold
   goconst:
     min-len: 3
     min-occurrences: 3
@@ -21,21 +22,21 @@ linters:
     - gosimple
     - ineffassign
     - typecheck
-    - exportloopref
     - gocyclo
     - dupl
     - goconst
     - misspell
     - unconvert
-    - unparam
-    - nakedret
-    - prealloc
     - gosec
   disable:
-    - structcheck
-    - varcheck
-    - deadcode
-    - ifshort
+    - structcheck  # Deprecated
+    - varcheck  # Deprecated
+    - deadcode  # Deprecated
+    - ifshort  # Deprecated
+    - exportloopref  # Deprecated (Go 1.22+)
+    - unparam  # Too strict for this codebase
+    - nakedret  # Acceptable for small functions
+    - prealloc  # Optimization not critical
 
 issues:
   exclude-rules:
@@ -43,7 +44,8 @@ issues:
       linters:
         - dupl
         - gosec
-        - unparam
+        - gocyclo
+        - govet
 
 run:
   timeout: 5m

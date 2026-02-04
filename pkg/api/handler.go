@@ -266,13 +266,7 @@ func (h *Handler) GetRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update pod status from Kubernetes
-	ctx := context.Background()
-	if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtimeInfo.PodName); err == nil {
-		runtimeInfo.PodStatus = statusInfo.Status
-		runtimeInfo.RestartCount = statusInfo.RestartCount
-		runtimeInfo.RestartReasons = statusInfo.RestartReasons
-		_ = h.stateMgr.UpdateRuntime(runtimeInfo)
-	}
+	h.updateRuntimeStatusFromK8s(runtimeInfo)
 
 	response := h.buildRuntimeResponse(runtimeInfo)
 	respondJSON(w, http.StatusOK, response)
@@ -290,13 +284,7 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update pod status from Kubernetes
-	ctx := context.Background()
-	if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtimeInfo.PodName); err == nil {
-		runtimeInfo.PodStatus = statusInfo.Status
-		runtimeInfo.RestartCount = statusInfo.RestartCount
-		runtimeInfo.RestartReasons = statusInfo.RestartReasons
-		_ = h.stateMgr.UpdateRuntime(runtimeInfo)
-	}
+	h.updateRuntimeStatusFromK8s(runtimeInfo)
 
 	response := h.buildRuntimeResponse(runtimeInfo)
 	respondJSON(w, http.StatusOK, response)
@@ -367,20 +355,35 @@ func (h *Handler) buildRuntimeResponse(info *state.RuntimeInfo) types.RuntimeRes
 	}
 }
 
+// updateRuntimeStatusFromK8s updates runtime info with latest pod status from Kubernetes
+func (h *Handler) updateRuntimeStatusFromK8s(runtimeInfo *state.RuntimeInfo) {
+	ctx := context.Background()
+	if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtimeInfo.PodName); err == nil {
+		runtimeInfo.PodStatus = statusInfo.Status
+		runtimeInfo.RestartCount = statusInfo.RestartCount
+		runtimeInfo.RestartReasons = statusInfo.RestartReasons
+		_ = h.stateMgr.UpdateRuntime(runtimeInfo)
+	}
+}
+
 // Helper functions
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
+	}
 }
 
 func respondError(w http.ResponseWriter, status int, errorType, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(types.ErrorResponse{
+	if err := json.NewEncoder(w).Encode(types.ErrorResponse{
 		Error:   errorType,
 		Message: message,
-	})
+	}); err != nil {
+		log.Printf("Error encoding error response: %v", err)
+	}
 }
 
 func generateID() string {

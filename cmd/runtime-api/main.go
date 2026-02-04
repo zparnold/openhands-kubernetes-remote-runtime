@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/api"
@@ -55,17 +56,25 @@ func main() {
 	// Health check endpoint (no auth required)
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}).Methods("GET")
 
-	// Start server
+	// Start server with timeouts
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
 	log.Printf("Starting OpenHands Kubernetes Runtime API server on %s", addr)
 	log.Printf("Namespace: %s", cfg.Namespace)
 	log.Printf("Base Domain: %s", cfg.BaseDomain)
 	log.Printf("Registry Prefix: %s", cfg.RegistryPrefix)
 
-	if err := http.ListenAndServe(addr, router); err != nil {
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
