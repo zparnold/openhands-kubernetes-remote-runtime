@@ -224,19 +224,22 @@ func (c *Client) createService(ctx context.Context, runtimeInfo *state.RuntimeIn
 			},
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "agent",
+					Name: "agent",
+					//nolint:gosec // Port values are validated to be in valid range (1-65535)
 					Port:       int32(c.config.AgentServerPort),
 					TargetPort: intstr.FromInt(c.config.AgentServerPort),
 					Protocol:   corev1.ProtocolTCP,
 				},
 				{
-					Name:       "vscode",
+					Name: "vscode",
+					//nolint:gosec // Port values are validated to be in valid range (1-65535)
 					Port:       int32(c.config.VSCodePort),
 					TargetPort: intstr.FromInt(c.config.VSCodePort),
 					Protocol:   corev1.ProtocolTCP,
 				},
 				{
-					Name:       "worker1",
+					Name: "worker1",
+					//nolint:gosec // Port values are validated to be in valid range (1-65535)
 					Port:       int32(c.config.Worker1Port),
 					TargetPort: intstr.FromInt(c.config.Worker1Port),
 					Protocol:   corev1.ProtocolTCP,
