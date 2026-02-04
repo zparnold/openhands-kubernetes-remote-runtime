@@ -208,8 +208,8 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Recreate the pod
-	// We need to reconstruct the StartRequest from stored info
-	// For simplicity, using default command
+	// TODO(technical-debt): Store original image, command, and environment in RuntimeInfo
+	// so we can recreate the pod exactly as it was. For now, using defaults.
 	startReq := &types.StartRequest{
 		Image:      h.config.DefaultImage, // This should be stored in RuntimeInfo in production
 		Command:    fmt.Sprintf("/usr/local/bin/openhands-agent-server --port %d", h.config.AgentServerPort),
@@ -385,12 +385,18 @@ func respondError(w http.ResponseWriter, status int, errorType, message string) 
 
 func generateID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID if crypto rand fails
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(b)
 }
 
 func generateSessionAPIKey() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based key if crypto rand fails
+		return fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().Unix())
+	}
 	return hex.EncodeToString(b)
 }
