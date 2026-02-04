@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openhands
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openhands-runtime-api
+  namespace: openhands
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openhands-runtime-api
+  namespace: openhands
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openhands-runtime-api
+  namespace: openhands
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openhands-runtime-api
+subjects:
+  - kind: ServiceAccount
+    name: openhands-runtime-api
+    namespace: openhands
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openhands-runtime-api-config
+  namespace: openhands
+data:
+  SERVER_PORT: "8080"
+  NAMESPACE: "openhands"
+  INGRESS_CLASS: "nginx"
+  BASE_DOMAIN: "sandbox.example.com"
+  REGISTRY_PREFIX: "ghcr.io/openhands"
+  DEFAULT_IMAGE: "ghcr.io/openhands/runtime:latest"
+  AGENT_SERVER_PORT: "60000"
+  VSCODE_PORT: "60001"
+  WORKER_1_PORT: "12000"
+  WORKER_2_PORT: "12001"
+  LOG_LEVEL: "info"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openhands-runtime-api-secret
+  namespace: openhands
+type: Opaque
+stringData:
+  API_KEY: "changeme-generate-secure-key"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openhands-runtime-api
+  namespace: openhands
+  labels:
+    app: openhands-runtime-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openhands-runtime-api
+  template:
+    metadata:
+      labels:
+        app: openhands-runtime-api
+    spec:
+      serviceAccountName: openhands-runtime-api
+      containers:
+        - name: runtime-api
+          image: ghcr.io/zparnold/openhands-kubernetes-remote-runtime:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: openhands-runtime-api-config
+            - secretRef:
+                name: openhands-runtime-api-secret
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openhands-runtime-api
+  namespace: openhands
+  labels:
+    app: openhands-runtime-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: openhands-runtime-api
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openhands-runtime-api
+  namespace: openhands
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: runtime-api.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: openhands-runtime-api
+                port:
+                  number: 80
