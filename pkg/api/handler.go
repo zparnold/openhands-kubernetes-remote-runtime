@@ -58,6 +58,8 @@ func (h *Handler) LoggingMiddleware(next http.Handler) http.Handler {
 		logger.Info("Started %s %s", r.Method, r.URL.Path)
 
 		// Log request details in debug mode
+		// WARNING: This logs full request bodies which may contain sensitive data
+		// Only enable debug mode in secure, controlled environments
 		if logger.IsDebugEnabled() {
 			logger.Debug("Request Headers: %v", r.Header)
 			if r.Body != nil {

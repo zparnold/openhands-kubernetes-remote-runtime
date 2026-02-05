@@ -226,9 +226,9 @@ To enable detailed debug logging, set `LOG_LEVEL=debug`. Debug mode logs:
 - Kubernetes operations (pod/service/ingress creation/deletion)
 - State management operations
 - Authentication and authorization checks
-- Detailed error messages and stack traces
+- Detailed error messages
 
-This is useful for troubleshooting issues during development or debugging production problems.
+**⚠️ Security Warning**: Debug mode logs full request/response bodies which may contain sensitive information such as API keys, session tokens, and environment variables. Only enable debug logging in development or when troubleshooting specific issues in controlled environments. Never enable debug logging in production with untrusted users or where logs are stored insecurely.
 
 ## Integration with OpenHands
 
