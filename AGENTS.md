@@ -56,6 +56,8 @@ The service implements the exact API contract expected by OpenHands Remote Runti
 - `GET /registry_prefix` - Get container registry prefix
 - `GET /image_exists` - Check if image exists
 - `GET /health` - Health check endpoint (no auth required)
+- `GET /liveness` - Liveness probe endpoint (no auth required)
+- `GET /readiness` - Readiness probe endpoint (no auth required)
 
 ### Response Format
 
@@ -193,7 +195,7 @@ runtime_container_image = "ghcr.io/openhands/runtime:latest"
 
 ## Security Considerations
 
-1. **API Key Authentication**: All endpoints (except /health) require X-API-Key header
+1. **API Key Authentication**: All endpoints (except /health, /liveness, /readiness) require X-API-Key header
 2. **Session API Keys**: Generated per sandbox using crypto/rand with fallback
 3. **RBAC**: Minimal Kubernetes permissions (pods, services, ingresses in namespace)
 4. **Runtime Classes**: Support for gvisor or sysbox for additional isolation

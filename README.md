@@ -84,8 +84,8 @@ kubectl get ingress -n openhands
 ### 4. Verify Installation
 
 ```bash
-# Check if the API is running
-curl -H "X-API-Key: your-api-key" https://runtime-api.your-domain.com/health
+# Check if the API is running (no authentication required)
+curl https://runtime-api.your-domain.com/health
 
 # Get registry prefix
 curl -H "X-API-Key: your-api-key" https://runtime-api.your-domain.com/registry_prefix
