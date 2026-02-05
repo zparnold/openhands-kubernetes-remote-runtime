@@ -34,8 +34,6 @@ func Init(levelStr string) {
 		level = DebugLevel
 	case "info":
 		level = InfoLevel
-	default:
-		level = InfoLevel
 	}
 
 	defaultLogger = &Logger{
