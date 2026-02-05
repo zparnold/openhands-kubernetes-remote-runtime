@@ -1,12 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/k8s"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
 )
@@ -38,10 +40,13 @@ func NewHandler(k8sClient *k8s.Client, stateMgr *state.StateManager, cfg *config
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		apiKey := r.Header.Get("X-API-Key")
+		logger.Debug("AuthMiddleware: Checking API key for %s %s", r.Method, r.URL.Path)
 		if apiKey == "" || apiKey != h.config.APIKey {
+			logger.Debug("AuthMiddleware: Invalid or missing API key")
 			respondError(w, http.StatusUnauthorized, "unauthorized", "Invalid or missing API key")
 			return
 		}
+		logger.Debug("AuthMiddleware: API key validated successfully")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -50,9 +55,32 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 func (h *Handler) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		log.Printf("Started %s %s", r.Method, r.URL.Path)
+		logger.Info("Started %s %s", r.Method, r.URL.Path)
+
+		// Log request details in debug mode
+		// ⚠️ SECURITY WARNING: Debug mode logs complete request headers and bodies
+		// This includes sensitive data: API keys (X-API-Key), authorization tokens,
+		// credentials, session tokens, and environment variables.
+		// Only enable debug mode in secure, controlled environments.
+		if logger.IsDebugEnabled() {
+			logger.Debug("Request Headers: %v", r.Header)
+			if r.Body != nil {
+				// Read body for logging, then restore it
+				bodyBytes, err := io.ReadAll(r.Body)
+				if err == nil {
+					logger.Debug("Request Body: %s", string(bodyBytes))
+					// Restore body for handler
+					r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				} else {
+					logger.Debug("Request Body: <unable to read: %v>", err)
+					// On error, restore an empty body to prevent nil pointer issues
+					r.Body = io.NopCloser(bytes.NewReader([]byte{}))
+				}
+			}
+		}
+
 		next.ServeHTTP(w, r)
-		log.Printf("Completed %s %s in %v", r.Method, r.URL.Path, time.Since(start))
+		logger.Info("Completed %s %s in %v", r.Method, r.URL.Path, time.Since(start))
 	})
 }
 
@@ -60,16 +88,21 @@ func (h *Handler) LoggingMiddleware(next http.Handler) http.Handler {
 func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 	var req types.StartRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Debug("StartRuntime: Failed to decode request body: %v", err)
 		respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
 		return
 	}
 
+	logger.Debug("StartRuntime: Request decoded - SessionID: %s, Image: %s", req.SessionID, req.Image)
+
 	// Validate required fields
 	if req.Image == "" {
+		logger.Debug("StartRuntime: Missing required field 'image'")
 		respondError(w, http.StatusBadRequest, "invalid_request", "Image is required")
 		return
 	}
 	if req.SessionID == "" {
+		logger.Debug("StartRuntime: Missing required field 'session_id'")
 		respondError(w, http.StatusBadRequest, "invalid_request", "Session ID is required")
 		return
 	}
@@ -77,6 +110,7 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 	// Check if runtime already exists for this session
 	if existingRuntime, err := h.stateMgr.GetRuntimeBySessionID(req.SessionID); err == nil {
 		// Runtime exists, return it
+		logger.Debug("StartRuntime: Found existing runtime for session %s: %s", req.SessionID, existingRuntime.RuntimeID)
 		response := h.buildRuntimeResponse(existingRuntime)
 		respondJSON(w, http.StatusOK, response)
 		return
@@ -85,6 +119,7 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 	// Generate runtime ID and session API key
 	runtimeID := generateID()
 	sessionAPIKey := generateSessionAPIKey()
+	logger.Debug("StartRuntime: Generated RuntimeID: %s, SessionID: %s", runtimeID, req.SessionID)
 
 	// Build runtime info
 	runtimeInfo := &state.RuntimeInfo{
@@ -103,25 +138,33 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	logger.Debug("StartRuntime: Runtime info created - URL: %s, PodName: %s", runtimeInfo.URL, runtimeInfo.PodName)
+
 	// Add to state
 	h.stateMgr.AddRuntime(runtimeInfo)
+	logger.Debug("StartRuntime: Added runtime to state manager")
 
 	// Create sandbox in Kubernetes
 	ctx := context.Background()
+	logger.Debug("StartRuntime: Creating sandbox in Kubernetes...")
 	if err := h.k8sClient.CreateSandbox(ctx, &req, runtimeInfo); err != nil {
 		// Remove from state on failure
 		_ = h.stateMgr.DeleteRuntime(runtimeID)
-		log.Printf("Failed to create sandbox: %v", err)
+		logger.Info("Failed to create sandbox: %v", err)
 		respondError(w, http.StatusInternalServerError, "sandbox_creation_failed", fmt.Sprintf("Failed to create sandbox: %v", err))
 		return
 	}
 
+	logger.Debug("StartRuntime: Sandbox created successfully")
+
 	// Update status to running
 	runtimeInfo.Status = types.StatusRunning
 	_ = h.stateMgr.UpdateRuntime(runtimeInfo)
+	logger.Debug("StartRuntime: Updated runtime status to running")
 
 	// Build and return response
 	response := h.buildRuntimeResponse(runtimeInfo)
+	logger.Debug("StartRuntime: Returning response for runtime %s", runtimeID)
 	respondJSON(w, http.StatusOK, response)
 }
 
@@ -129,22 +172,30 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) StopRuntime(w http.ResponseWriter, r *http.Request) {
 	var req types.StopRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Debug("StopRuntime: Failed to decode request body: %v", err)
 		respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
 		return
 	}
 
+	logger.Debug("StopRuntime: Request decoded - RuntimeID: %s", req.RuntimeID)
+
 	runtimeInfo, err := h.stateMgr.GetRuntimeByID(req.RuntimeID)
 	if err != nil {
+		logger.Debug("StopRuntime: Runtime not found: %s", req.RuntimeID)
 		respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
 		return
 	}
 
+	logger.Debug("StopRuntime: Deleting sandbox for runtime %s (Pod: %s)", req.RuntimeID, runtimeInfo.PodName)
+
 	ctx := context.Background()
 	if err := h.k8sClient.DeleteSandbox(ctx, runtimeInfo); err != nil {
-		log.Printf("Failed to delete sandbox: %v", err)
+		logger.Info("Failed to delete sandbox: %v", err)
 		respondError(w, http.StatusInternalServerError, "sandbox_deletion_failed", fmt.Sprintf("Failed to delete sandbox: %v", err))
 		return
 	}
+
+	logger.Debug("StopRuntime: Sandbox deleted successfully")
 
 	// Update status
 	runtimeInfo.Status = types.StatusStopped
@@ -152,6 +203,7 @@ func (h *Handler) StopRuntime(w http.ResponseWriter, r *http.Request) {
 
 	// Remove from state
 	_ = h.stateMgr.DeleteRuntime(req.RuntimeID)
+	logger.Debug("StopRuntime: Removed runtime from state")
 
 	response := h.buildRuntimeResponse(runtimeInfo)
 	respondJSON(w, http.StatusOK, response)
@@ -161,28 +213,37 @@ func (h *Handler) StopRuntime(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PauseRuntime(w http.ResponseWriter, r *http.Request) {
 	var req types.PauseRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Debug("PauseRuntime: Failed to decode request body: %v", err)
 		respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
 		return
 	}
 
+	logger.Debug("PauseRuntime: Request decoded - RuntimeID: %s", req.RuntimeID)
+
 	runtimeInfo, err := h.stateMgr.GetRuntimeByID(req.RuntimeID)
 	if err != nil {
+		logger.Debug("PauseRuntime: Runtime not found: %s", req.RuntimeID)
 		respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
 		return
 	}
 
+	logger.Debug("PauseRuntime: Scaling pod to zero for runtime %s (Pod: %s)", req.RuntimeID, runtimeInfo.PodName)
+
 	// For pause, we delete the pod but keep the state
 	ctx := context.Background()
 	if err := h.k8sClient.ScalePodToZero(ctx, runtimeInfo.PodName); err != nil {
-		log.Printf("Failed to pause runtime: %v", err)
+		logger.Info("Failed to pause runtime: %v", err)
 		respondError(w, http.StatusInternalServerError, "pause_failed", fmt.Sprintf("Failed to pause runtime: %v", err))
 		return
 	}
+
+	logger.Debug("PauseRuntime: Pod scaled to zero successfully")
 
 	// Update status
 	runtimeInfo.Status = types.StatusPaused
 	runtimeInfo.PodStatus = types.PodStatusNotFound
 	_ = h.stateMgr.UpdateRuntime(runtimeInfo)
+	logger.Debug("PauseRuntime: Updated runtime status to paused")
 
 	response := h.buildRuntimeResponse(runtimeInfo)
 	respondJSON(w, http.StatusOK, response)
@@ -192,20 +253,27 @@ func (h *Handler) PauseRuntime(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 	var req types.ResumeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Debug("ResumeRuntime: Failed to decode request body: %v", err)
 		respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
 		return
 	}
 
+	logger.Debug("ResumeRuntime: Request decoded - RuntimeID: %s", req.RuntimeID)
+
 	runtimeInfo, err := h.stateMgr.GetRuntimeByID(req.RuntimeID)
 	if err != nil {
+		logger.Debug("ResumeRuntime: Runtime not found: %s", req.RuntimeID)
 		respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
 		return
 	}
 
 	if runtimeInfo.Status != types.StatusPaused {
+		logger.Debug("ResumeRuntime: Runtime %s is not paused (status: %s)", req.RuntimeID, runtimeInfo.Status)
 		respondError(w, http.StatusBadRequest, "invalid_state", "Runtime is not paused")
 		return
 	}
+
+	logger.Debug("ResumeRuntime: Recreating pod for runtime %s", req.RuntimeID)
 
 	// Recreate the pod
 	// TODO(technical-debt): Store original image, command, and environment in RuntimeInfo
@@ -219,15 +287,18 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 	if err := h.k8sClient.RecreatePod(ctx, startReq, runtimeInfo); err != nil {
-		log.Printf("Failed to resume runtime: %v", err)
+		logger.Info("Failed to resume runtime: %v", err)
 		respondError(w, http.StatusInternalServerError, "resume_failed", fmt.Sprintf("Failed to resume runtime: %v", err))
 		return
 	}
+
+	logger.Debug("ResumeRuntime: Pod recreated successfully")
 
 	// Update status
 	runtimeInfo.Status = types.StatusRunning
 	runtimeInfo.PodStatus = types.PodStatusPending
 	_ = h.stateMgr.UpdateRuntime(runtimeInfo)
+	logger.Debug("ResumeRuntime: Updated runtime status to running")
 
 	response := h.buildRuntimeResponse(runtimeInfo)
 	respondJSON(w, http.StatusOK, response)
@@ -235,7 +306,9 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 
 // ListRuntimes handles GET /list
 func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
+	logger.Debug("ListRuntimes: Fetching all runtimes")
 	runtimes := h.stateMgr.ListRuntimes()
+	logger.Debug("ListRuntimes: Found %d runtimes", len(runtimes))
 
 	responses := make([]types.RuntimeResponse, 0, len(runtimes))
 	for _, runtime := range runtimes {
@@ -251,6 +324,7 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
 
+	logger.Debug("ListRuntimes: Returning %d runtime responses", len(responses))
 	respondJSON(w, http.StatusOK, types.ListResponse{Runtimes: responses})
 }
 
@@ -258,9 +332,11 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetRuntime(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	runtimeID := vars["runtime_id"]
+	logger.Debug("GetRuntime: Fetching runtime %s", runtimeID)
 
 	runtimeInfo, err := h.stateMgr.GetRuntimeByID(runtimeID)
 	if err != nil {
+		logger.Debug("GetRuntime: Runtime not found: %s", runtimeID)
 		respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
 		return
 	}
@@ -276,9 +352,11 @@ func (h *Handler) GetRuntime(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["session_id"]
+	logger.Debug("GetSession: Fetching session %s", sessionID)
 
 	runtimeInfo, err := h.stateMgr.GetRuntimeBySessionID(sessionID)
 	if err != nil {
+		logger.Debug("GetSession: Session not found: %s", sessionID)
 		respondError(w, http.StatusNotFound, "session_not_found", "Session not found")
 		return
 	}
@@ -294,12 +372,15 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetSessionsBatch(w http.ResponseWriter, r *http.Request) {
 	idsParam := r.URL.Query().Get("ids")
 	if idsParam == "" {
+		logger.Debug("GetSessionsBatch: Missing 'ids' parameter")
 		respondError(w, http.StatusBadRequest, "invalid_request", "ids parameter is required")
 		return
 	}
 
 	sessionIDs := strings.Split(idsParam, ",")
+	logger.Debug("GetSessionsBatch: Fetching %d sessions", len(sessionIDs))
 	runtimes := h.stateMgr.GetRuntimesBySessionIDs(sessionIDs)
+	logger.Debug("GetSessionsBatch: Found %d runtimes", len(runtimes))
 
 	responses := make([]types.RuntimeResponse, 0, len(runtimes))
 	for _, runtime := range runtimes {
@@ -329,10 +410,12 @@ func (h *Handler) GetRegistryPrefix(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CheckImageExists(w http.ResponseWriter, r *http.Request) {
 	image := r.URL.Query().Get("image")
 	if image == "" {
+		logger.Debug("CheckImageExists: Missing 'image' parameter")
 		respondError(w, http.StatusBadRequest, "invalid_request", "image parameter is required")
 		return
 	}
 
+	logger.Debug("CheckImageExists: Checking image %s", image)
 	// For MVP, we'll assume all images exist
 	// In production, this should actually check the registry
 	respondJSON(w, http.StatusOK, types.ImageExistsResponse{
@@ -370,19 +453,28 @@ func (h *Handler) updateRuntimeStatusFromK8s(runtimeInfo *state.RuntimeInfo) {
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+
+	// Log response in debug mode
+	if logger.IsDebugEnabled() {
+		if jsonBytes, err := json.Marshal(data); err == nil {
+			logger.Debug("Response [%d]: %s", status, string(jsonBytes))
+		}
+	}
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding JSON response: %v", err)
+		logger.Info("Error encoding JSON response: %v", err)
 	}
 }
 
 func respondError(w http.ResponseWriter, status int, errorType, message string) {
+	logger.Debug("Error response [%d]: %s - %s", status, errorType, message)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(types.ErrorResponse{
 		Error:   errorType,
 		Message: message,
 	}); err != nil {
-		log.Printf("Error encoding error response: %v", err)
+		logger.Info("Error encoding error response: %v", err)
 	}
 }
 
