@@ -93,8 +93,8 @@ func TestIsDebugEnabled(t *testing.T) {
 }
 
 func TestInfoWithoutInit(t *testing.T) {
-	// Reset default logger to test auto-initialization
-	defaultLogger = nil
+	// Reset logger to test auto-initialization
+	Reset()
 	var buf bytes.Buffer
 
 	// This should auto-initialize
@@ -114,8 +114,8 @@ func TestInfoWithoutInit(t *testing.T) {
 }
 
 func TestDebugWithoutInit(t *testing.T) {
-	// Reset default logger to test auto-initialization
-	defaultLogger = nil
+	// Reset logger to test auto-initialization
+	Reset()
 	var buf bytes.Buffer
 
 	// This should auto-initialize with info level

@@ -311,12 +311,12 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 			runtime.RestartCount = statusInfo.RestartCount
 			runtime.RestartReasons = statusInfo.RestartReasons
 			_ = h.stateMgr.UpdateRuntime(runtime)
-			logger.Debug("ListRuntimes: Updated pod status for runtime %s - Status: %s", runtime.RuntimeID, statusInfo.Status)
 		}
 
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
-
+	
+	logger.Debug("ListRuntimes: Returning %d runtime responses", len(responses))
 	respondJSON(w, http.StatusOK, types.ListResponse{Runtimes: responses})
 }
 

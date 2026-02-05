@@ -86,3 +86,8 @@ func IsDebugEnabled() bool {
 	}
 	return defaultLogger.level == DebugLevel
 }
+
+// Reset resets the logger to nil (primarily for testing)
+func Reset() {
+	defaultLogger = nil
+}
