@@ -19,8 +19,8 @@ const (
 
 // Logger wraps the standard logger with level-based logging
 type Logger struct {
-	level      Level
-	infoLogger *log.Logger
+	level       Level
+	infoLogger  *log.Logger
 	debugLogger *log.Logger
 }
 

@@ -35,7 +35,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	var err error
 
 	logger.Debug("NewClient: Initializing Kubernetes client")
-	
+
 	// Try in-cluster config first
 	k8sConfig, err = rest.InClusterConfig()
 	if err != nil {
@@ -78,7 +78,7 @@ func portToInt32(port int) int32 {
 // CreateSandbox creates a complete sandbox environment (pod, service, ingress)
 func (c *Client) CreateSandbox(ctx context.Context, req *types.StartRequest, runtimeInfo *state.RuntimeInfo) error {
 	logger.Debug("CreateSandbox: Creating sandbox for runtime %s", runtimeInfo.RuntimeID)
-	
+
 	// Create Pod
 	logger.Debug("CreateSandbox: Creating pod %s", runtimeInfo.PodName)
 	if err := c.createPod(ctx, req, runtimeInfo); err != nil {

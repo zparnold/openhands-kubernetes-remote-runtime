@@ -96,17 +96,17 @@ func TestInfoWithoutInit(t *testing.T) {
 	// Reset default logger to test auto-initialization
 	defaultLogger = nil
 	var buf bytes.Buffer
-	
+
 	// This should auto-initialize
 	Info("test")
 	if defaultLogger == nil {
 		t.Error("Expected defaultLogger to be initialized automatically")
 	}
-	
+
 	// Now set output and test
 	SetOutput(&buf)
 	Info("auto init test")
-	
+
 	output := buf.String()
 	if !strings.Contains(output, "auto init test") {
 		t.Errorf("Expected output to contain 'auto init test', got: %s", output)
@@ -117,17 +117,17 @@ func TestDebugWithoutInit(t *testing.T) {
 	// Reset default logger to test auto-initialization
 	defaultLogger = nil
 	var buf bytes.Buffer
-	
+
 	// This should auto-initialize with info level
 	Debug("should not appear")
 	if defaultLogger == nil {
 		t.Error("Expected defaultLogger to be initialized automatically")
 	}
-	
+
 	// Debug should be suppressed at default info level
 	SetOutput(&buf)
 	Debug("still should not appear")
-	
+
 	output := buf.String()
 	if strings.Contains(output, "should not appear") {
 		t.Errorf("Expected debug to be suppressed with auto-init, got: %s", output)

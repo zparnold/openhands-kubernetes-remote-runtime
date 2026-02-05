@@ -56,7 +56,7 @@ func (h *Handler) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		logger.Info("Started %s %s", r.Method, r.URL.Path)
-		
+
 		// Log request details in debug mode
 		if logger.IsDebugEnabled() {
 			logger.Debug("Request Headers: %v", r.Header)
@@ -70,7 +70,7 @@ func (h *Handler) LoggingMiddleware(next http.Handler) http.Handler {
 				}
 			}
 		}
-		
+
 		next.ServeHTTP(w, r)
 		logger.Info("Completed %s %s in %v", r.Method, r.URL.Path, time.Since(start))
 	})
@@ -445,14 +445,14 @@ func (h *Handler) updateRuntimeStatusFromK8s(runtimeInfo *state.RuntimeInfo) {
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	
+
 	// Log response in debug mode
 	if logger.IsDebugEnabled() {
 		if jsonBytes, err := json.Marshal(data); err == nil {
 			logger.Debug("Response [%d]: %s", status, string(jsonBytes))
 		}
 	}
-	
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		logger.Info("Error encoding JSON response: %v", err)
 	}
