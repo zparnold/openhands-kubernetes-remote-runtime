@@ -67,11 +67,13 @@ func (h *Handler) LoggingMiddleware(next http.Handler) http.Handler {
 				bodyBytes, err := io.ReadAll(r.Body)
 				if err == nil {
 					logger.Debug("Request Body: %s", string(bodyBytes))
+					// Restore body for handler
+					r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 				} else {
 					logger.Debug("Request Body: <unable to read: %v>", err)
+					// On error, restore an empty body to prevent nil pointer issues
+					r.Body = io.NopCloser(bytes.NewReader([]byte{}))
 				}
-				// Always restore body for handler, even on error
-				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			}
 		}
 

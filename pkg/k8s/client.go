@@ -514,19 +514,19 @@ func (c *Client) DeleteSandbox(ctx context.Context, runtimeInfo *state.RuntimeIn
 	logger.Debug("DeleteSandbox: Deleting ingress %s", runtimeInfo.IngressName)
 	if err := c.DeleteIngress(ctx, runtimeInfo.IngressName); err != nil && !errors.IsNotFound(err) {
 		deleteErrors = append(deleteErrors, fmt.Errorf("failed to delete ingress: %w", err))
-		logger.Debug("DeleteSandbox: Error deleting ingress: %v", err)
+		logger.Info("DeleteSandbox: Error deleting ingress: %v", err)
 	}
 
 	logger.Debug("DeleteSandbox: Deleting service %s", runtimeInfo.ServiceName)
 	if err := c.DeleteService(ctx, runtimeInfo.ServiceName); err != nil && !errors.IsNotFound(err) {
 		deleteErrors = append(deleteErrors, fmt.Errorf("failed to delete service: %w", err))
-		logger.Debug("DeleteSandbox: Error deleting service: %v", err)
+		logger.Info("DeleteSandbox: Error deleting service: %v", err)
 	}
 
 	logger.Debug("DeleteSandbox: Deleting pod %s", runtimeInfo.PodName)
 	if err := c.DeletePod(ctx, runtimeInfo.PodName); err != nil && !errors.IsNotFound(err) {
 		deleteErrors = append(deleteErrors, fmt.Errorf("failed to delete pod: %w", err))
-		logger.Debug("DeleteSandbox: Error deleting pod: %v", err)
+		logger.Info("DeleteSandbox: Error deleting pod: %v", err)
 	}
 
 	if len(deleteErrors) > 0 {
