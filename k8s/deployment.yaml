@@ -95,13 +95,13 @@ spec:
                 name: openhands-runtime-api-secret
           livenessProbe:
             httpGet:
-              path: /health
+              path: /liveness
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /health
+              path: /readiness
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5

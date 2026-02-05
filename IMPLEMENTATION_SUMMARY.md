@@ -91,7 +91,9 @@ Successfully implemented a complete Kubernetes-compatible runtime service for Op
 ✅ GET /sessions/batch - Batch query sessions
 ✅ GET /registry_prefix - Get container registry prefix
 ✅ GET /image_exists - Check if image exists
-✅ GET /health - Health check endpoint
+✅ GET /health - Health check endpoint (no auth)
+✅ GET /liveness - Liveness probe endpoint (no auth)
+✅ GET /readiness - Readiness probe endpoint (no auth)
 
 ## Key Features
 
@@ -112,7 +114,7 @@ Each sandbox pod includes:
 - Support for custom runtime classes (sysbox-runc, gvisor)
 
 ### Security
-- API key authentication on all endpoints (except /health)
+- API key authentication on all endpoints (except /health, /liveness, /readiness)
 - Session-specific API keys generated for each sandbox
 - Minimal RBAC permissions (pods, services, ingresses in namespace)
 - Crypto-safe random ID and key generation with error handling

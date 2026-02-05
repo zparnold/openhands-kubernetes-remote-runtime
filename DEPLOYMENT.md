@@ -132,6 +132,14 @@ Test the health endpoint:
 curl https://runtime-api.your-domain.com/health
 # Expected: OK
 
+# Liveness probe (no authentication required)
+curl https://runtime-api.your-domain.com/liveness
+# Expected: OK
+
+# Readiness probe (no authentication required)
+curl https://runtime-api.your-domain.com/readiness
+# Expected: OK
+
 # Registry prefix endpoint (requires authentication)
 curl -H "X-API-Key: your-api-key" \
   https://runtime-api.your-domain.com/registry_prefix
