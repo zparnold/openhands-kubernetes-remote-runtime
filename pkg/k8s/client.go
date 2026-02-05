@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
 
@@ -33,20 +34,27 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	var k8sConfig *rest.Config
 	var err error
 
+	logger.Debug("NewClient: Initializing Kubernetes client")
+	
 	// Try in-cluster config first
 	k8sConfig, err = rest.InClusterConfig()
 	if err != nil {
+		logger.Debug("NewClient: In-cluster config not available, falling back to kubeconfig")
 		// Fall back to kubeconfig
 		k8sConfig, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create kubernetes config: %w", err)
 		}
+	} else {
+		logger.Debug("NewClient: Using in-cluster configuration")
 	}
 
 	clientset, err := kubernetes.NewForConfig(k8sConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
+
+	logger.Debug("NewClient: Kubernetes client created successfully for namespace %s", cfg.Namespace)
 
 	return &Client{
 		clientset: clientset,
@@ -69,26 +77,35 @@ func portToInt32(port int) int32 {
 
 // CreateSandbox creates a complete sandbox environment (pod, service, ingress)
 func (c *Client) CreateSandbox(ctx context.Context, req *types.StartRequest, runtimeInfo *state.RuntimeInfo) error {
+	logger.Debug("CreateSandbox: Creating sandbox for runtime %s", runtimeInfo.RuntimeID)
+	
 	// Create Pod
+	logger.Debug("CreateSandbox: Creating pod %s", runtimeInfo.PodName)
 	if err := c.createPod(ctx, req, runtimeInfo); err != nil {
 		return fmt.Errorf("failed to create pod: %w", err)
 	}
+	logger.Debug("CreateSandbox: Pod created successfully")
 
 	// Create Service
+	logger.Debug("CreateSandbox: Creating service %s", runtimeInfo.ServiceName)
 	if err := c.createService(ctx, runtimeInfo); err != nil {
 		// Clean up pod on failure
 		_ = c.DeletePod(ctx, runtimeInfo.PodName)
 		return fmt.Errorf("failed to create service: %w", err)
 	}
+	logger.Debug("CreateSandbox: Service created successfully")
 
 	// Create Ingress
+	logger.Debug("CreateSandbox: Creating ingress %s", runtimeInfo.IngressName)
 	if err := c.createIngress(ctx, runtimeInfo); err != nil {
 		// Clean up pod and service on failure
 		_ = c.DeletePod(ctx, runtimeInfo.PodName)
 		_ = c.DeleteService(ctx, runtimeInfo.ServiceName)
 		return fmt.Errorf("failed to create ingress: %w", err)
 	}
+	logger.Debug("CreateSandbox: Ingress created successfully")
 
+	logger.Debug("CreateSandbox: Sandbox created successfully for runtime %s", runtimeInfo.RuntimeID)
 	return nil
 }
 
@@ -490,30 +507,39 @@ func (c *Client) DeleteIngress(ctx context.Context, ingressName string) error {
 
 // DeleteSandbox deletes all resources for a sandbox
 func (c *Client) DeleteSandbox(ctx context.Context, runtimeInfo *state.RuntimeInfo) error {
+	logger.Debug("DeleteSandbox: Deleting sandbox for runtime %s", runtimeInfo.RuntimeID)
 	var deleteErrors []error
 
 	// Delete in reverse order: ingress, service, pod
+	logger.Debug("DeleteSandbox: Deleting ingress %s", runtimeInfo.IngressName)
 	if err := c.DeleteIngress(ctx, runtimeInfo.IngressName); err != nil && !errors.IsNotFound(err) {
 		deleteErrors = append(deleteErrors, fmt.Errorf("failed to delete ingress: %w", err))
+		logger.Debug("DeleteSandbox: Error deleting ingress: %v", err)
 	}
 
+	logger.Debug("DeleteSandbox: Deleting service %s", runtimeInfo.ServiceName)
 	if err := c.DeleteService(ctx, runtimeInfo.ServiceName); err != nil && !errors.IsNotFound(err) {
 		deleteErrors = append(deleteErrors, fmt.Errorf("failed to delete service: %w", err))
+		logger.Debug("DeleteSandbox: Error deleting service: %v", err)
 	}
 
+	logger.Debug("DeleteSandbox: Deleting pod %s", runtimeInfo.PodName)
 	if err := c.DeletePod(ctx, runtimeInfo.PodName); err != nil && !errors.IsNotFound(err) {
 		deleteErrors = append(deleteErrors, fmt.Errorf("failed to delete pod: %w", err))
+		logger.Debug("DeleteSandbox: Error deleting pod: %v", err)
 	}
 
 	if len(deleteErrors) > 0 {
 		return fmt.Errorf("errors deleting sandbox: %v", deleteErrors)
 	}
 
+	logger.Debug("DeleteSandbox: Sandbox deleted successfully for runtime %s", runtimeInfo.RuntimeID)
 	return nil
 }
 
 // ScalePodToZero scales the pod to zero replicas (pause simulation)
 func (c *Client) ScalePodToZero(ctx context.Context, podName string) error {
+	logger.Debug("ScalePodToZero: Scaling pod %s to zero", podName)
 	// For now, we'll just delete the pod for pause
 	// A more sophisticated approach would use deployments/statefulsets
 	return c.DeletePod(ctx, podName)
@@ -521,6 +547,7 @@ func (c *Client) ScalePodToZero(ctx context.Context, podName string) error {
 
 // RecreatePod recreates a pod (resume simulation)
 func (c *Client) RecreatePod(ctx context.Context, req *types.StartRequest, runtimeInfo *state.RuntimeInfo) error {
+	logger.Debug("RecreatePod: Recreating pod %s", runtimeInfo.PodName)
 	return c.createPod(ctx, req, runtimeInfo)
 }
 

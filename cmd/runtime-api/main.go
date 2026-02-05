@@ -10,12 +10,18 @@ import (
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/api"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/k8s"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 )
 
 func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
+
+	// Initialize logger with configured level
+	logger.Init(cfg.LogLevel)
+	logger.Info("Initializing OpenHands Kubernetes Runtime API")
+	logger.Debug("Log level set to: %s", cfg.LogLevel)
 
 	// Validate required config
 	if cfg.APIKey == "" {
@@ -65,10 +71,14 @@ func main() {
 
 	// Start server with timeouts
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
-	log.Printf("Starting OpenHands Kubernetes Runtime API server on %s", addr)
-	log.Printf("Namespace: %s", cfg.Namespace)
-	log.Printf("Base Domain: %s", cfg.BaseDomain)
-	log.Printf("Registry Prefix: %s", cfg.RegistryPrefix)
+	logger.Info("Starting OpenHands Kubernetes Runtime API server on %s", addr)
+	logger.Info("Namespace: %s", cfg.Namespace)
+	logger.Info("Base Domain: %s", cfg.BaseDomain)
+	logger.Info("Registry Prefix: %s", cfg.RegistryPrefix)
+	logger.Debug("Agent Server Port: %d", cfg.AgentServerPort)
+	logger.Debug("VSCode Port: %d", cfg.VSCodePort)
+	logger.Debug("Worker 1 Port: %d", cfg.Worker1Port)
+	logger.Debug("Worker 2 Port: %d", cfg.Worker2Port)
 
 	server := &http.Server{
 		Addr:         addr,
