@@ -315,7 +315,7 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
-	
+
 	logger.Debug("ListRuntimes: Returning %d runtime responses", len(responses))
 	respondJSON(w, http.StatusOK, types.ListResponse{Runtimes: responses})
 }
