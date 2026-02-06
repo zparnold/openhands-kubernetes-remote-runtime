@@ -10,12 +10,18 @@ import (
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/api"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/k8s"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 )
 
 func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
+
+	// Initialize logger with configured level
+	logger.Init(cfg.LogLevel)
+	logger.Info("Initializing OpenHands Kubernetes Runtime API")
+	logger.Debug("Log level set to: %s", cfg.LogLevel)
 
 	// Validate required config
 	if cfg.APIKey == "" {
@@ -37,34 +43,42 @@ func main() {
 	// Setup router
 	router := mux.NewRouter()
 
-	// Apply middlewares
-	router.Use(handler.LoggingMiddleware)
-	router.Use(handler.AuthMiddleware)
-
-	// Register routes
-	router.HandleFunc("/start", handler.StartRuntime).Methods("POST")
-	router.HandleFunc("/stop", handler.StopRuntime).Methods("POST")
-	router.HandleFunc("/pause", handler.PauseRuntime).Methods("POST")
-	router.HandleFunc("/resume", handler.ResumeRuntime).Methods("POST")
-	router.HandleFunc("/list", handler.ListRuntimes).Methods("GET")
-	router.HandleFunc("/runtime/{runtime_id}", handler.GetRuntime).Methods("GET")
-	router.HandleFunc("/sessions/{session_id}", handler.GetSession).Methods("GET")
-	router.HandleFunc("/sessions/batch", handler.GetSessionsBatch).Methods("GET")
-	router.HandleFunc("/registry_prefix", handler.GetRegistryPrefix).Methods("GET")
-	router.HandleFunc("/image_exists", handler.CheckImageExists).Methods("GET")
-
-	// Health check endpoint (no auth required)
-	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Health check endpoints (no auth required) - must be registered before auth middleware
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
-	}).Methods("GET")
+	}
+	router.HandleFunc("/health", healthHandler).Methods("GET")
+	router.HandleFunc("/liveness", healthHandler).Methods("GET")
+	router.HandleFunc("/readiness", healthHandler).Methods("GET")
+
+	// Create a subrouter for authenticated routes
+	authRouter := router.PathPrefix("/").Subrouter()
+	authRouter.Use(handler.LoggingMiddleware)
+	authRouter.Use(handler.AuthMiddleware)
+
+	// Register authenticated routes
+	authRouter.HandleFunc("/start", handler.StartRuntime).Methods("POST")
+	authRouter.HandleFunc("/stop", handler.StopRuntime).Methods("POST")
+	authRouter.HandleFunc("/pause", handler.PauseRuntime).Methods("POST")
+	authRouter.HandleFunc("/resume", handler.ResumeRuntime).Methods("POST")
+	authRouter.HandleFunc("/list", handler.ListRuntimes).Methods("GET")
+	authRouter.HandleFunc("/runtime/{runtime_id}", handler.GetRuntime).Methods("GET")
+	authRouter.HandleFunc("/sessions/{session_id}", handler.GetSession).Methods("GET")
+	authRouter.HandleFunc("/sessions/batch", handler.GetSessionsBatch).Methods("GET")
+	authRouter.HandleFunc("/registry_prefix", handler.GetRegistryPrefix).Methods("GET")
+	authRouter.HandleFunc("/image_exists", handler.CheckImageExists).Methods("GET")
 
 	// Start server with timeouts
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
-	log.Printf("Starting OpenHands Kubernetes Runtime API server on %s", addr)
-	log.Printf("Namespace: %s", cfg.Namespace)
-	log.Printf("Base Domain: %s", cfg.BaseDomain)
-	log.Printf("Registry Prefix: %s", cfg.RegistryPrefix)
+	logger.Info("Starting OpenHands Kubernetes Runtime API server on %s", addr)
+	logger.Info("Namespace: %s", cfg.Namespace)
+	logger.Info("Base Domain: %s", cfg.BaseDomain)
+	logger.Info("Registry Prefix: %s", cfg.RegistryPrefix)
+	logger.Debug("Agent Server Port: %d", cfg.AgentServerPort)
+	logger.Debug("VSCode Port: %d", cfg.VSCodePort)
+	logger.Debug("Worker 1 Port: %d", cfg.Worker1Port)
+	logger.Debug("Worker 2 Port: %d", cfg.Worker2Port)
 
 	server := &http.Server{
 		Addr:         addr,

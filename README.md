@@ -84,8 +84,8 @@ kubectl get ingress -n openhands
 ### 4. Verify Installation
 
 ```bash
-# Check if the API is running
-curl -H "X-API-Key: your-api-key" https://runtime-api.your-domain.com/health
+# Check if the API is running (no authentication required)
+curl https://runtime-api.your-domain.com/health
 
 # Get registry prefix
 curl -H "X-API-Key: your-api-key" https://runtime-api.your-domain.com/registry_prefix
@@ -206,6 +206,7 @@ Environment variables:
 |----------|---------|-------------|
 | `SERVER_PORT` | `8080` | HTTP server port |
 | `API_KEY` | (required) | API authentication key |
+| `LOG_LEVEL` | `info` | Logging level: `info` or `debug` (enables verbose logging with request/response details) |
 | `NAMESPACE` | `openhands` | Kubernetes namespace for sandboxes |
 | `INGRESS_CLASS` | `nginx` | Ingress class to use |
 | `BASE_DOMAIN` | `sandbox.example.com` | Base domain for subdomain routing |
@@ -217,6 +218,17 @@ Environment variables:
 | `WORKER_2_PORT` | `12001` | Worker 2 port in pods |
 | `APP_SERVER_URL` | (optional) | OpenHands app server URL for webhooks |
 | `APP_SERVER_PUBLIC_URL` | (optional) | Public URL for CORS configuration |
+
+### Debug Logging
+
+To enable detailed debug logging, set `LOG_LEVEL=debug`. Debug mode logs:
+- Full request/response bodies for all API calls
+- Kubernetes operations (pod/service/ingress creation/deletion)
+- State management operations
+- Authentication and authorization checks
+- Detailed error messages
+
+**⚠️ Security Warning**: Debug mode logs full request/response bodies which may contain sensitive information such as API keys, session tokens, and environment variables. Only enable debug logging in development or when troubleshooting specific issues in controlled environments. Never enable debug logging in production with untrusted users or where logs are stored insecurely.
 
 ## Integration with OpenHands
 
