@@ -35,6 +35,8 @@ The service creates the following Kubernetes resources for each sandbox:
    - `work-1-{session-id}.sandbox.example.com` → Worker 1
    - `work-2-{session-id}.sandbox.example.com` → Worker 2
 
+   You can add custom annotations to each sandbox Ingress (e.g. for TLS/cert-manager) via **SANDBOX_INGRESS_ANNOTATIONS**: set to comma-separated `key=value` pairs, e.g. `cert-manager.io/issuer=my-issuer,cert-manager.io/issuer-group=cert-manager.io`. These are merged with the default annotations (ssl-redirect, websocket-services).
+
 ## Prerequisites
 
 - Kubernetes cluster version 1.30 or higher

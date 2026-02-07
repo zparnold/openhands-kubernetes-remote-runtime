@@ -147,3 +147,32 @@ func TestGetEnvAsInt(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAnnotations(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected map[string]string
+	}{
+		{"Empty string", "", map[string]string{}},
+		{"Single pair", "key1=value1", map[string]string{"key1": "value1"}},
+		{"Multiple pairs", "k1=v1,k2=v2", map[string]string{"k1": "v1", "k2": "v2"}},
+		{"Value with equals", "cert-manager.io/issuer=step-issuer-name", map[string]string{"cert-manager.io/issuer": "step-issuer-name"}},
+		{"With spaces", " k1 = v1 , k2 = v2 ", map[string]string{"k1": "v1", "k2": "v2"}},
+		{"Skip empty pair", "k1=v1,,k2=v2", map[string]string{"k1": "v1", "k2": "v2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseAnnotations(tt.input)
+			if len(got) != len(tt.expected) {
+				t.Errorf("Expected %d entries, got %d: %v", len(tt.expected), len(got), got)
+				return
+			}
+			for k, v := range tt.expected {
+				if got[k] != v {
+					t.Errorf("Key %q: expected %q, got %q", k, v, got[k])
+				}
+			}
+		})
+	}
+}

@@ -309,15 +309,19 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 	worker1Host := fmt.Sprintf("work-1-%s.%s", sessionIDForHost, c.config.BaseDomain)
 	worker2Host := fmt.Sprintf("work-2-%s.%s", sessionIDForHost, c.config.BaseDomain)
 
+	annotations := map[string]string{
+		"nginx.ingress.kubernetes.io/ssl-redirect":       "true",
+		"nginx.ingress.kubernetes.io/websocket-services": runtimeInfo.ServiceName,
+	}
+	for k, v := range c.config.SandboxIngressAnnotations {
+		annotations[k] = v
+	}
 	ingress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      runtimeInfo.IngressName,
-			Namespace: c.namespace,
-			Labels:    labels,
-			Annotations: map[string]string{
-				"nginx.ingress.kubernetes.io/ssl-redirect":       "true",
-				"nginx.ingress.kubernetes.io/websocket-services": runtimeInfo.ServiceName,
-			},
+			Name:        runtimeInfo.IngressName,
+			Namespace:   c.namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: &ingressClassName,
@@ -409,6 +413,12 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 							},
 						},
 					},
+				},
+			},
+			TLS: []networkingv1.IngressTLS{
+				{
+					Hosts:      []string{agentHost, vscodeHost, worker1Host, worker2Host},
+					SecretName: fmt.Sprintf("runtime-%s-tls", runtimeInfo.RuntimeID),
 				},
 			},
 		},
