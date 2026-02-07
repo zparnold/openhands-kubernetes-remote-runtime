@@ -280,7 +280,7 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 	// so we can recreate the pod exactly as it was. For now, using defaults.
 	startReq := &types.StartRequest{
 		Image:      h.config.DefaultImage, // This should be stored in RuntimeInfo in production
-		Command:    fmt.Sprintf("/usr/local/bin/openhands-agent-server --port %d", h.config.AgentServerPort),
+		Command:    types.FlexibleCommand{"/usr/local/bin/openhands-agent-server", "--port", fmt.Sprintf("%d", h.config.AgentServerPort)},
 		WorkingDir: "/openhands/code/",
 		SessionID:  runtimeInfo.SessionID,
 	}

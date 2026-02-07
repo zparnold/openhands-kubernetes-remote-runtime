@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -52,7 +53,7 @@ func TestPodStatus(t *testing.T) {
 func TestStartRequest(t *testing.T) {
 	req := StartRequest{
 		Image:          "test-image",
-		Command:        "test-command",
+		Command:        FlexibleCommand{"test-command"},
 		WorkingDir:     "/test",
 		Environment:    map[string]string{"KEY": "VALUE"},
 		SessionID:      "test-session",
@@ -69,6 +70,39 @@ func TestStartRequest(t *testing.T) {
 	if req.ResourceFactor != 1.5 {
 		t.Errorf("Expected resource factor 1.5, got %f", req.ResourceFactor)
 	}
+}
+
+func TestFlexibleCommand_UnmarshalJSON(t *testing.T) {
+	t.Run("unmarshal from string", func(t *testing.T) {
+		var c FlexibleCommand
+		err := json.Unmarshal([]byte(`"echo hello"`), &c)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(c) != 1 || c[0] != "echo hello" {
+			t.Errorf("expected [\"echo hello\"], got %v", c)
+		}
+	})
+	t.Run("unmarshal from array", func(t *testing.T) {
+		var c FlexibleCommand
+		err := json.Unmarshal([]byte(`["/usr/local/bin/openhands-agent-server","--port","60000"]`), &c)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(c) != 3 || c[0] != "/usr/local/bin/openhands-agent-server" || c[1] != "--port" || c[2] != "60000" {
+			t.Errorf("expected exec form slice, got %v", c)
+		}
+	})
+	t.Run("unmarshal empty string", func(t *testing.T) {
+		var c FlexibleCommand
+		err := json.Unmarshal([]byte(`""`), &c)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if c != nil {
+			t.Errorf("expected nil, got %v", c)
+		}
+	})
 }
 
 func TestRuntimeResponse(t *testing.T) {

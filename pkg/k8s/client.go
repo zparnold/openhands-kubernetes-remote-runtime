@@ -3,7 +3,6 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
@@ -149,15 +148,17 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		})
 	}
 
-	// Parse command
+	// Parse command: accept either exec form ([]string) or single string (run via bash -c)
 	var command []string
 	var args []string
-	if req.Command != "" {
-		parts := strings.Fields(req.Command)
-		if len(parts) > 0 {
-			command = []string{"/bin/bash", "-c"}
-			args = []string{req.Command}
-		}
+	if len(req.Command) > 1 {
+		// Exec form: use slice directly as container Command
+		command = []string(req.Command)
+		args = nil
+	} else if len(req.Command) == 1 && req.Command[0] != "" {
+		// Single string: preserve legacy behavior (bash -c)
+		command = []string{"/bin/bash", "-c"}
+		args = []string{req.Command[0]}
 	}
 
 	// Set resource requests/limits based on resource_factor

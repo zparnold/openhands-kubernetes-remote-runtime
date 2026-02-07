@@ -1,9 +1,42 @@
 package types
 
+import (
+	"encoding/json"
+	"strings"
+)
+
+// FlexibleCommand accepts command as either a JSON string or a JSON array of strings
+// (OpenHands may send e.g. ["/usr/local/bin/openhands-agent-server","--port","60000"]).
+type FlexibleCommand []string
+
+// UnmarshalJSON implements json.Unmarshaler so command can be a string or []string.
+func (c *FlexibleCommand) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if s == "" {
+			*c = nil
+		} else {
+			*c = FlexibleCommand([]string{s})
+		}
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return err
+	}
+	*c = FlexibleCommand(arr)
+	return nil
+}
+
+// String returns a space-joined representation (for backward compatibility).
+func (c FlexibleCommand) String() string {
+	return strings.Join(c, " ")
+}
+
 // StartRequest represents the request to start a new runtime
 type StartRequest struct {
 	Image          string            `json:"image"`
-	Command        string            `json:"command"`
+	Command        FlexibleCommand   `json:"command"`
 	WorkingDir     string            `json:"working_dir"`
 	Environment    map[string]string `json:"environment"`
 	SessionID      string            `json:"session_id"`
