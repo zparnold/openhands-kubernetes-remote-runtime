@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
@@ -298,15 +299,15 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 	pathTypePrefix := networkingv1.PathTypePrefix
 	ingressClassName := c.config.IngressClass
 
+	// Ingress hostnames must be RFC 1123 subdomains (lowercase alphanumeric, '-' or '.')
+	sessionIDForHost := strings.ToLower(runtimeInfo.SessionID)
 	// Create ingress for agent server (main subdomain)
-	agentHost := fmt.Sprintf("%s.%s", runtimeInfo.SessionID, c.config.BaseDomain)
-
+	agentHost := fmt.Sprintf("%s.%s", sessionIDForHost, c.config.BaseDomain)
 	// Create ingress for vscode (vscode- prefix)
-	vscodeHost := fmt.Sprintf("vscode-%s.%s", runtimeInfo.SessionID, c.config.BaseDomain)
-
+	vscodeHost := fmt.Sprintf("vscode-%s.%s", sessionIDForHost, c.config.BaseDomain)
 	// Create ingress for workers
-	worker1Host := fmt.Sprintf("work-1-%s.%s", runtimeInfo.SessionID, c.config.BaseDomain)
-	worker2Host := fmt.Sprintf("work-2-%s.%s", runtimeInfo.SessionID, c.config.BaseDomain)
+	worker1Host := fmt.Sprintf("work-1-%s.%s", sessionIDForHost, c.config.BaseDomain)
+	worker2Host := fmt.Sprintf("work-2-%s.%s", sessionIDForHost, c.config.BaseDomain)
 
 	ingress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{

@@ -121,11 +121,13 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 	sessionAPIKey := generateSessionAPIKey()
 	logger.Debug("StartRuntime: Generated RuntimeID: %s, SessionID: %s", runtimeID, req.SessionID)
 
+	// Session ID for hostnames must be lowercase (RFC 1123 subdomain); keep original for lookups
+	sessionIDForHost := strings.ToLower(req.SessionID)
 	// Build runtime info
 	runtimeInfo := &state.RuntimeInfo{
 		RuntimeID:     runtimeID,
 		SessionID:     req.SessionID,
-		URL:           fmt.Sprintf("https://%s.%s", req.SessionID, h.config.BaseDomain),
+		URL:           fmt.Sprintf("https://%s.%s", sessionIDForHost, h.config.BaseDomain),
 		SessionAPIKey: sessionAPIKey,
 		Status:        types.StatusPending,
 		PodStatus:     types.PodStatusPending,
@@ -133,8 +135,8 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 		ServiceName:   fmt.Sprintf("runtime-%s", runtimeID),
 		IngressName:   fmt.Sprintf("runtime-%s", runtimeID),
 		WorkHosts: map[string]int{
-			fmt.Sprintf("https://work-1-%s.%s", req.SessionID, h.config.BaseDomain): h.config.Worker1Port,
-			fmt.Sprintf("https://work-2-%s.%s", req.SessionID, h.config.BaseDomain): h.config.Worker2Port,
+			fmt.Sprintf("https://work-1-%s.%s", sessionIDForHost, h.config.BaseDomain): h.config.Worker1Port,
+			fmt.Sprintf("https://work-2-%s.%s", sessionIDForHost, h.config.BaseDomain): h.config.Worker2Port,
 		},
 	}
 
