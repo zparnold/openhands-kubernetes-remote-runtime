@@ -176,3 +176,57 @@ func TestParseAnnotations(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSecretNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{"Empty string", "", nil},
+		{"Single secret", "my-registry-secret", []string{"my-registry-secret"}},
+		{"Multiple secrets", "secret1,secret2", []string{"secret1", "secret2"}},
+		{"With spaces", " s1 , s2 ", []string{"s1", "s2"}},
+		{"Skip empty", "s1,,s2", []string{"s1", "s2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseSecretNames(tt.input)
+			if len(got) != len(tt.expected) {
+				t.Errorf("Expected %v, got %v", tt.expected, got)
+				return
+			}
+			for i := range tt.expected {
+				if got[i] != tt.expected[i] {
+					t.Errorf("Index %d: expected %q, got %q", i, tt.expected[i], got[i])
+				}
+			}
+		})
+	}
+}
+
+func TestLoadConfig_ImagePullSecrets(t *testing.T) {
+	orig := os.Getenv("IMAGE_PULL_SECRETS")
+	defer func() {
+		if orig == "" {
+			os.Unsetenv("IMAGE_PULL_SECRETS")
+		} else {
+			os.Setenv("IMAGE_PULL_SECRETS", orig)
+		}
+	}()
+
+	os.Setenv("IMAGE_PULL_SECRETS", "my-registry-secret,other-secret")
+	cfg := LoadConfig()
+	if len(cfg.ImagePullSecrets) != 2 {
+		t.Fatalf("Expected 2 ImagePullSecrets, got %d: %v", len(cfg.ImagePullSecrets), cfg.ImagePullSecrets)
+	}
+	if cfg.ImagePullSecrets[0] != "my-registry-secret" || cfg.ImagePullSecrets[1] != "other-secret" {
+		t.Errorf("Expected [my-registry-secret other-secret], got %v", cfg.ImagePullSecrets)
+	}
+
+	os.Unsetenv("IMAGE_PULL_SECRETS")
+	cfg = LoadConfig()
+	if cfg.ImagePullSecrets != nil {
+		t.Errorf("Expected nil ImagePullSecrets when unset, got %v", cfg.ImagePullSecrets)
+	}
+}

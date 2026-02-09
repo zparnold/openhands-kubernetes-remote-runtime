@@ -233,6 +233,14 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		pod.Spec.RuntimeClassName = &req.RuntimeClass
 	}
 
+	// Set image pull secrets when using a private registry
+	if len(c.config.ImagePullSecrets) > 0 {
+		pod.Spec.ImagePullSecrets = make([]corev1.LocalObjectReference, 0, len(c.config.ImagePullSecrets))
+		for _, name := range c.config.ImagePullSecrets {
+			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: name})
+		}
+	}
+
 	_, err := c.clientset.CoreV1().Pods(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
 	return err
 }

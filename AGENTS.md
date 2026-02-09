@@ -94,6 +94,7 @@ Each sandbox pod includes:
 - Resource requests and limits (configurable via resource_factor)
 - Readiness probe on /alive endpoint
 - Support for custom runtime classes (sysbox-runc, gvisor)
+- Optional imagePullSecrets when `IMAGE_PULL_SECRETS` is set (for private registries)
 
 ## Development Guidelines
 

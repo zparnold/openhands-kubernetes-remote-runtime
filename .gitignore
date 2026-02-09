@@ -36,3 +36,4 @@ tmp/
 
 # Environment files
 .env
+.cursor/

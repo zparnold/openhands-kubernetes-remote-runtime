@@ -214,6 +214,7 @@ Environment variables:
 | `BASE_DOMAIN` | `sandbox.example.com` | Base domain for subdomain routing |
 | `REGISTRY_PREFIX` | `ghcr.io/openhands` | Container registry prefix |
 | `DEFAULT_IMAGE` | `ghcr.io/openhands/runtime:latest` | Default runtime image |
+| `IMAGE_PULL_SECRETS` | (none) | Comma-separated Kubernetes secret names for pulling sandbox images (e.g. private registry). Required when using images that need a pull secret. |
 | `AGENT_SERVER_PORT` | `60000` | Agent server port in pods |
 | `VSCODE_PORT` | `60001` | VSCode port in pods |
 | `WORKER_1_PORT` | `12000` | Worker 1 port in pods |

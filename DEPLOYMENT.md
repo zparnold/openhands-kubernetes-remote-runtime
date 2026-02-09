@@ -65,6 +65,8 @@ Edit `k8s/deployment.yaml`:
 data:
   BASE_DOMAIN: "your-domain.com"  # Change this
   REGISTRY_PREFIX: "your-registry/openhands"  # Change if needed
+  # If your sandbox images require a pull secret (private registry), add:
+  # IMAGE_PULL_SECRETS: "your-registry-pull-secret"
 ```
 
 2. **Update Secret** with your API key:

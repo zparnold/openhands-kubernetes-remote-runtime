@@ -22,8 +22,9 @@ type Config struct {
 	SandboxIngressAnnotations map[string]string
 
 	// Container configuration
-	RegistryPrefix string
-	DefaultImage   string
+	RegistryPrefix   string
+	DefaultImage     string
+	ImagePullSecrets []string // Kubernetes secret names for pulling sandbox images (e.g. private registry)
 
 	// Pod configuration
 	AgentServerPort int
@@ -47,6 +48,7 @@ func LoadConfig() *Config {
 		SandboxIngressAnnotations: parseAnnotations(getEnv("SANDBOX_INGRESS_ANNOTATIONS", "")),
 		RegistryPrefix:            getEnv("REGISTRY_PREFIX", "ghcr.io/openhands"),
 		DefaultImage:              getEnv("DEFAULT_IMAGE", "ghcr.io/openhands/runtime:latest"),
+		ImagePullSecrets:          parseSecretNames(getEnv("IMAGE_PULL_SECRETS", "")),
 		AgentServerPort:           getEnvAsInt("AGENT_SERVER_PORT", 60000),
 		VSCodePort:                getEnvAsInt("VSCODE_PORT", 60001),
 		Worker1Port:               getEnvAsInt("WORKER_1_PORT", 12000),
@@ -72,6 +74,21 @@ func parseAnnotations(s string) map[string]string {
 			continue
 		}
 		out[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+	}
+	return out
+}
+
+// parseSecretNames parses a comma-separated list of Kubernetes secret names (e.g. for imagePullSecrets).
+func parseSecretNames(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, name := range strings.Split(s, ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out = append(out, name)
+		}
 	}
 	return out
 }
