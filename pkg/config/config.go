@@ -39,6 +39,12 @@ type Config struct {
 	// Proxy mode: when set, /start returns URLs under this base (e.g. https://runtime-api.example.com)
 	// so sandbox traffic goes through this API instead of per-sandbox DNS. Avoids DNS propagation delay.
 	ProxyBaseURL string
+
+	// Cleanup configuration
+	CleanupEnabled            bool // Enable automatic cleanup of orphaned resources
+	CleanupIntervalMinutes    int  // Interval between cleanup runs (in minutes)
+	CleanupFailedThresholdMin int  // Time before cleaning up failed pods (in minutes)
+	CleanupIdleThresholdMin   int  // Time before cleaning up idle pods (in minutes)
 }
 
 func LoadConfig() *Config {
@@ -60,6 +66,10 @@ func LoadConfig() *Config {
 		AppServerURL:              getEnv("APP_SERVER_URL", ""),
 		AppServerPublicURL:        getEnv("APP_SERVER_PUBLIC_URL", ""),
 		ProxyBaseURL:              strings.TrimSuffix(getEnv("PROXY_BASE_URL", ""), "/"),
+		CleanupEnabled:            getEnvAsBool("CLEANUP_ENABLED", true),
+		CleanupIntervalMinutes:    getEnvAsInt("CLEANUP_INTERVAL_MINUTES", 5),
+		CleanupFailedThresholdMin: getEnvAsInt("CLEANUP_FAILED_THRESHOLD_MINUTES", 60),
+		CleanupIdleThresholdMin:   getEnvAsInt("CLEANUP_IDLE_THRESHOLD_MINUTES", 1440), // 24 hours
 	}
 }
 
@@ -109,6 +119,15 @@ func getEnvAsInt(key string, defaultVal int) int {
 	if value := os.Getenv(key); value != "" {
 		if intVal, err := strconv.Atoi(value); err == nil {
 			return intVal
+		}
+	}
+	return defaultVal
+}
+
+func getEnvAsBool(key string, defaultVal bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if boolVal, err := strconv.ParseBool(value); err == nil {
+			return boolVal
 		}
 	}
 	return defaultVal

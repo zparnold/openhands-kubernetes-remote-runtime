@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/api"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/cleanup"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/k8s"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
@@ -36,6 +41,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Kubernetes client: %v", err)
 	}
+
+	// Initialize cleanup service
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cleanupSvc := cleanup.NewService(k8sClient, stateMgr, cfg)
+	cleanupSvc.Start(ctx)
+	defer cleanupSvc.Stop()
 
 	// Initialize API handler
 	handler := api.NewHandler(k8sClient, stateMgr, cfg)
@@ -96,7 +109,29 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	if err := server.ListenAndServe(); err != nil {
+	// Handle graceful shutdown
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		<-sigChan
+		logger.Info("Shutdown signal received")
+
+		// Create a deadline for shutdown
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+
+		// Stop cleanup service
+		cleanupSvc.Stop()
+
+		// Shutdown HTTP server
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.Info("HTTP server shutdown error: %v", err)
+		}
+	}()
+
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+
+	logger.Info("Server shutdown complete")
 }
