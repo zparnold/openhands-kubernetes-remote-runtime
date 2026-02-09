@@ -35,6 +35,10 @@ type Config struct {
 	// App server configuration
 	AppServerURL       string
 	AppServerPublicURL string
+
+	// Proxy mode: when set, /start returns URLs under this base (e.g. https://runtime-api.example.com)
+	// so sandbox traffic goes through this API instead of per-sandbox DNS. Avoids DNS propagation delay.
+	ProxyBaseURL string
 }
 
 func LoadConfig() *Config {
@@ -55,6 +59,7 @@ func LoadConfig() *Config {
 		Worker2Port:               getEnvAsInt("WORKER_2_PORT", 12001),
 		AppServerURL:              getEnv("APP_SERVER_URL", ""),
 		AppServerPublicURL:        getEnv("APP_SERVER_PUBLIC_URL", ""),
+		ProxyBaseURL:              strings.TrimSuffix(getEnv("PROXY_BASE_URL", ""), "/"),
 	}
 }
 

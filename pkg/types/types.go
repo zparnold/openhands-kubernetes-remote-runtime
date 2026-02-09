@@ -87,6 +87,7 @@ type RuntimeResponse struct {
 	RuntimeID      string         `json:"runtime_id"`
 	SessionID      string         `json:"session_id"`
 	URL            string         `json:"url"`
+	VSCodeURL      string         `json:"vscode_url,omitempty"` // optional; when set (e.g. proxy mode), frontend uses this for "Open in VSCode"
 	SessionAPIKey  string         `json:"session_api_key,omitempty"`
 	Status         RuntimeStatus  `json:"status"`
 	PodStatus      PodStatus      `json:"pod_status"`

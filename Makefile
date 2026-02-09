@@ -42,12 +42,9 @@ clean:
 	go clean
 
 # Build Docker image
-docker-build:
-	docker build -t $(DOCKER_IMAGE):$(VERSION) .
-
-# Push Docker image
-docker-push:
-	docker push $(DOCKER_IMAGE):$(VERSION)
+docker-build: build
+	docker buildx build --platform linux/amd64 -t $(DOCKER_IMAGE):$(VERSION) .
+	docker buildx build --platform linux/amd64 --push -t $(DOCKER_IMAGE):$(VERSION) .
 
 # Deploy to Kubernetes
 deploy:

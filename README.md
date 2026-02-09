@@ -37,6 +37,17 @@ The service creates the following Kubernetes resources for each sandbox:
 
    You can add custom annotations to each sandbox Ingress (e.g. for TLS/cert-manager) via **SANDBOX_INGRESS_ANNOTATIONS**: set to comma-separated `key=value` pairs, e.g. `cert-manager.io/issuer=my-issuer,cert-manager.io/issuer-group=cert-manager.io`. These are merged with the default annotations (ssl-redirect, websocket-services).
 
+### Proxy mode (optional)
+
+If your DNS provider is slow to propagate new subdomain records (e.g. >5 minutes), you can route sandbox traffic through the runtime API so that only **one** stable hostname is needed.
+
+- Set **`PROXY_BASE_URL`** to the public URL of this runtime API (e.g. `https://runtime-api.your-domain.com`).
+- The `/start` response will then return:
+  - **`url`**: `{PROXY_BASE_URL}/sandbox/{runtime_id}` (agent server; OpenHands uses this for actions).
+  - **`vscode_url`**: `{PROXY_BASE_URL}/sandbox/{runtime_id}/vscode` (for "Open in VSCode" in the browser).
+- All agent and VSCode traffic is reverse-proxied by the runtime API to the sandbox pod via in-cluster service DNS. No per-sandbox DNS or wildcard DNS is required for proxy mode.
+- Ingress resources for each sandbox are still created (for optional direct access once DNS has propagated), but OpenHands and the browser use the proxy URLs immediately.
+
 ## Prerequisites
 
 - Kubernetes cluster version 1.30 or higher
@@ -221,6 +232,7 @@ Environment variables:
 | `WORKER_2_PORT` | `12001` | Worker 2 port in pods |
 | `APP_SERVER_URL` | (optional) | OpenHands app server URL for webhooks |
 | `APP_SERVER_PUBLIC_URL` | (optional) | Public URL for CORS configuration |
+| `PROXY_BASE_URL` | (optional) | When set, sandbox URLs are served via this API (e.g. `https://runtime-api.your-domain.com`) so only one DNS record is needed; avoids DNS propagation delay for new sandboxes |
 
 ### Debug Logging
 

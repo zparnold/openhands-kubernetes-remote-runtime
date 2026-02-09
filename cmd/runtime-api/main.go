@@ -69,11 +69,19 @@ func main() {
 	authRouter.HandleFunc("/registry_prefix", handler.GetRegistryPrefix).Methods("GET")
 	authRouter.HandleFunc("/image_exists", handler.CheckImageExists).Methods("GET")
 
+	if cfg.ProxyBaseURL != "" {
+		authRouter.PathPrefix("/sandbox/").HandlerFunc(handler.ProxySandbox)
+		logger.Info("Proxy mode enabled: sandbox URLs under %s/sandbox/{runtime_id}", cfg.ProxyBaseURL)
+	}
+
 	// Start server with timeouts
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
 	logger.Info("Starting OpenHands Kubernetes Runtime API server on %s", addr)
 	logger.Info("Namespace: %s", cfg.Namespace)
 	logger.Info("Base Domain: %s", cfg.BaseDomain)
+	if cfg.ProxyBaseURL != "" {
+		logger.Info("Proxy Base URL: %s (ephemeral sandbox traffic via runtime API)", cfg.ProxyBaseURL)
+	}
 	logger.Info("Registry Prefix: %s", cfg.RegistryPrefix)
 	logger.Debug("Agent Server Port: %d", cfg.AgentServerPort)
 	logger.Debug("VSCode Port: %d", cfg.VSCodePort)

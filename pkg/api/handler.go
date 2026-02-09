@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"time"
 
@@ -427,7 +429,7 @@ func (h *Handler) CheckImageExists(w http.ResponseWriter, r *http.Request) {
 
 // buildRuntimeResponse builds a RuntimeResponse from RuntimeInfo
 func (h *Handler) buildRuntimeResponse(info *state.RuntimeInfo) types.RuntimeResponse {
-	return types.RuntimeResponse{
+	resp := types.RuntimeResponse{
 		RuntimeID:      info.RuntimeID,
 		SessionID:      info.SessionID,
 		URL:            info.URL,
@@ -438,6 +440,12 @@ func (h *Handler) buildRuntimeResponse(info *state.RuntimeInfo) types.RuntimeRes
 		RestartCount:   info.RestartCount,
 		RestartReasons: info.RestartReasons,
 	}
+	if h.config.ProxyBaseURL != "" {
+		base := strings.TrimSuffix(h.config.ProxyBaseURL, "/")
+		resp.URL = fmt.Sprintf("%s/sandbox/%s", base, info.RuntimeID)
+		resp.VSCodeURL = fmt.Sprintf("%s/sandbox/%s/vscode", base, info.RuntimeID)
+	}
+	return resp
 }
 
 // updateRuntimeStatusFromK8s updates runtime info with latest pod status from Kubernetes
@@ -449,6 +457,80 @@ func (h *Handler) updateRuntimeStatusFromK8s(runtimeInfo *state.RuntimeInfo) {
 		runtimeInfo.RestartReasons = statusInfo.RestartReasons
 		_ = h.stateMgr.UpdateRuntime(runtimeInfo)
 	}
+}
+
+// ProxySandbox reverse-proxies requests to the sandbox pod (agent or vscode port) via in-cluster service.
+// Path format: /sandbox/{runtime_id}/... or /sandbox/{runtime_id}/vscode/...
+// Used when PROXY_BASE_URL is set to avoid per-sandbox DNS (single stable DNS for the runtime API).
+func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	const prefix = "/sandbox/"
+	if !strings.HasPrefix(path, prefix) {
+		respondError(w, http.StatusNotFound, "not_found", "Not found")
+		return
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	if rest == "" {
+		respondError(w, http.StatusNotFound, "not_found", "Not found")
+		return
+	}
+	parts := strings.SplitN(rest, "/", 2)
+	runtimeID := parts[0]
+	if runtimeID == "" {
+		respondError(w, http.StatusNotFound, "not_found", "Not found")
+		return
+	}
+	var backendPath string
+	var backendPort int
+	if len(parts) == 2 && (parts[1] == "vscode" || strings.HasPrefix(parts[1], "vscode/")) {
+		backendPort = h.config.VSCodePort
+		if parts[1] == "vscode" {
+			backendPath = "/"
+		} else {
+			backendPath = "/" + strings.TrimPrefix(parts[1], "vscode")
+		}
+	} else {
+		backendPort = h.config.AgentServerPort
+		if len(parts) == 2 {
+			backendPath = "/" + parts[1]
+		} else {
+			backendPath = "/"
+		}
+	}
+
+	runtimeInfo, err := h.stateMgr.GetRuntimeByID(runtimeID)
+	if err != nil {
+		logger.Debug("ProxySandbox: Runtime not found: %s", runtimeID)
+		respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
+		return
+	}
+
+	backendURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
+		runtimeInfo.ServiceName, h.config.Namespace, backendPort, backendPath)
+	target, err := url.Parse(backendURL)
+	if err != nil {
+		logger.Debug("ProxySandbox: Invalid backend URL: %v", err)
+		respondError(w, http.StatusInternalServerError, "proxy_error", "Invalid backend URL")
+		return
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Director = func(req *http.Request) {
+		req.URL.Scheme = target.Scheme
+		req.URL.Host = target.Host
+		req.URL.Path = target.Path
+		req.URL.RawPath = target.RawPath
+		req.URL.RawQuery = r.URL.RawQuery
+		req.Host = target.Host
+		if req.Header == nil {
+			req.Header = make(http.Header)
+		}
+		// Forward session API key so sandbox can validate
+		if v := r.Header.Get("X-Session-API-Key"); v != "" {
+			req.Header.Set("X-Session-API-Key", v)
+		}
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 // Helper functions

@@ -22,6 +22,7 @@ func setupTestHandler() (*Handler, *state.StateManager) {
 		Worker1Port:     12000,
 		Worker2Port:     12001,
 		AgentServerPort: 60000,
+		VSCodePort:      60001,
 		DefaultImage:    "test-image",
 	}
 	stateMgr := state.NewStateManager()
@@ -317,4 +318,122 @@ func TestGenerateSessionAPIKey(t *testing.T) {
 	if key1 == key2 {
 		t.Error("Generated keys should be unique")
 	}
+}
+
+func TestBuildRuntimeResponse_WithoutProxy(t *testing.T) {
+	handler, stateMgr := setupTestHandler()
+	handler.config.ProxyBaseURL = ""
+
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID:     "rt-123",
+		SessionID:     "sess-456",
+		URL:           "https://sess-456.test.example.com",
+		SessionAPIKey: "skey",
+		Status:        types.StatusRunning,
+		PodStatus:     types.PodStatusReady,
+		ServiceName:   "runtime-rt-123",
+	})
+
+	info, _ := stateMgr.GetRuntimeByID("rt-123")
+	resp := handler.buildRuntimeResponse(info)
+
+	if resp.URL != "https://sess-456.test.example.com" {
+		t.Errorf("Expected URL from RuntimeInfo, got %q", resp.URL)
+	}
+	if resp.VSCodeURL != "" {
+		t.Errorf("Expected empty VSCodeURL when not in proxy mode, got %q", resp.VSCodeURL)
+	}
+}
+
+func TestBuildRuntimeResponse_WithProxy(t *testing.T) {
+	handler, stateMgr := setupTestHandler()
+	handler.config.ProxyBaseURL = "https://runtime-api.example.com"
+
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID:     "rt-abc",
+		SessionID:     "sess-xyz",
+		URL:           "https://sess-xyz.test.example.com",
+		SessionAPIKey: "skey",
+		Status:        types.StatusRunning,
+		PodStatus:     types.PodStatusReady,
+		ServiceName:   "runtime-rt-abc",
+	})
+
+	info, _ := stateMgr.GetRuntimeByID("rt-abc")
+	resp := handler.buildRuntimeResponse(info)
+
+	expectedURL := "https://runtime-api.example.com/sandbox/rt-abc"
+	if resp.URL != expectedURL {
+		t.Errorf("Expected URL %q, got %q", expectedURL, resp.URL)
+	}
+	expectedVSCode := "https://runtime-api.example.com/sandbox/rt-abc/vscode"
+	if resp.VSCodeURL != expectedVSCode {
+		t.Errorf("Expected VSCodeURL %q, got %q", expectedVSCode, resp.VSCodeURL)
+	}
+}
+
+func TestBuildRuntimeResponse_WithProxyBaseURLTrailingSlash(t *testing.T) {
+	handler, stateMgr := setupTestHandler()
+	handler.config.ProxyBaseURL = "https://runtime-api.example.com/"
+
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID:     "rt-1",
+		SessionID:     "s1",
+		URL:           "https://s1.test.example.com",
+		Status:        types.StatusRunning,
+		PodStatus:     types.PodStatusReady,
+		ServiceName:   "runtime-rt-1",
+	})
+
+	info, _ := stateMgr.GetRuntimeByID("rt-1")
+	resp := handler.buildRuntimeResponse(info)
+
+	// buildRuntimeResponse uses TrimSuffix on ProxyBaseURL
+	if resp.URL != "https://runtime-api.example.com/sandbox/rt-1" {
+		t.Errorf("Expected URL without double slash, got %q", resp.URL)
+	}
+}
+
+func TestProxySandbox_NotFound(t *testing.T) {
+	handler, stateMgr := setupTestHandler()
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID:   "rt-1",
+		SessionID:   "s1",
+		ServiceName: "runtime-rt-1",
+	})
+
+	t.Run("Path without sandbox prefix", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/other/rt-1/alive", nil)
+		req.URL.Path = "/other/rt-1/alive"
+		rr := httptest.NewRecorder()
+		handler.ProxySandbox(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("Expected 404, got %d", rr.Code)
+		}
+	})
+
+	t.Run("Unknown runtime ID", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/sandbox/nonexistent-id/alive", nil)
+		req.URL.Path = "/sandbox/nonexistent-id/alive"
+		rr := httptest.NewRecorder()
+		handler.ProxySandbox(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("Expected 404 for unknown runtime, got %d", rr.Code)
+		}
+		var errResp types.ErrorResponse
+		_ = json.NewDecoder(rr.Body).Decode(&errResp)
+		if errResp.Error != "runtime_not_found" {
+			t.Errorf("Expected error runtime_not_found, got %q", errResp.Error)
+		}
+	})
+
+	t.Run("Empty path after sandbox", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/sandbox/", nil)
+		req.URL.Path = "/sandbox/"
+		rr := httptest.NewRecorder()
+		handler.ProxySandbox(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("Expected 404 for empty path, got %d", rr.Code)
+		}
+	})
 }

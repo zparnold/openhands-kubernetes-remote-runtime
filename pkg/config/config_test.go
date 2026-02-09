@@ -230,3 +230,38 @@ func TestLoadConfig_ImagePullSecrets(t *testing.T) {
 		t.Errorf("Expected nil ImagePullSecrets when unset, got %v", cfg.ImagePullSecrets)
 	}
 }
+
+func TestLoadConfig_ProxyBaseURL(t *testing.T) {
+	orig := os.Getenv("PROXY_BASE_URL")
+	defer func() {
+		if orig == "" {
+			os.Unsetenv("PROXY_BASE_URL")
+		} else {
+			os.Setenv("PROXY_BASE_URL", orig)
+		}
+	}()
+
+	t.Run("Empty when unset", func(t *testing.T) {
+		os.Unsetenv("PROXY_BASE_URL")
+		cfg := LoadConfig()
+		if cfg.ProxyBaseURL != "" {
+			t.Errorf("Expected empty ProxyBaseURL when unset, got %q", cfg.ProxyBaseURL)
+		}
+	})
+
+	t.Run("Loaded and trailing slash trimmed", func(t *testing.T) {
+		os.Setenv("PROXY_BASE_URL", "https://runtime-api.example.com/")
+		cfg := LoadConfig()
+		if cfg.ProxyBaseURL != "https://runtime-api.example.com" {
+			t.Errorf("Expected trailing slash trimmed, got %q", cfg.ProxyBaseURL)
+		}
+	})
+
+	t.Run("Loaded without trailing slash", func(t *testing.T) {
+		os.Setenv("PROXY_BASE_URL", "https://runtime-api.example.com")
+		cfg := LoadConfig()
+		if cfg.ProxyBaseURL != "https://runtime-api.example.com" {
+			t.Errorf("Expected same value, got %q", cfg.ProxyBaseURL)
+		}
+	})
+}
