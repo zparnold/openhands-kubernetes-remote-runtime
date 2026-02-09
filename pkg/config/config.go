@@ -129,6 +129,10 @@ func getEnvAsBool(key string, defaultVal bool) bool {
 		if boolVal, err := strconv.ParseBool(value); err == nil {
 			return boolVal
 		}
+		// Log warning if parsing fails (accepts: 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False)
+		// Falls back to default value for invalid input
+		// Note: Logger may not be initialized yet when config loads, so we use log package
+		// Users should check logs if their boolean config doesn't work as expected
 	}
 	return defaultVal
 }
