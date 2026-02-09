@@ -377,12 +377,12 @@ func TestBuildRuntimeResponse_WithProxyBaseURLTrailingSlash(t *testing.T) {
 	handler.config.ProxyBaseURL = "https://runtime-api.example.com/"
 
 	stateMgr.AddRuntime(&state.RuntimeInfo{
-		RuntimeID:     "rt-1",
-		SessionID:     "s1",
-		URL:           "https://s1.test.example.com",
-		Status:        types.StatusRunning,
-		PodStatus:     types.PodStatusReady,
-		ServiceName:   "runtime-rt-1",
+		RuntimeID:   "rt-1",
+		SessionID:   "s1",
+		URL:         "https://s1.test.example.com",
+		Status:      types.StatusRunning,
+		PodStatus:   types.PodStatusReady,
+		ServiceName: "runtime-rt-1",
 	})
 
 	info, _ := stateMgr.GetRuntimeByID("rt-1")
