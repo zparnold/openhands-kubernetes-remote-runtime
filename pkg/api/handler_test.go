@@ -120,6 +120,47 @@ func TestAuthMiddleware(t *testing.T) {
 			t.Errorf("Expected status 200, got %d", rr.Code)
 		}
 	})
+
+	t.Run("POST /sandbox/{id}/api/bash/start_bash_command without X-API-Key is allowed (session key validated by sandbox)", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/sandbox/a00197a38929f1d32942fa6761ed406a/api/bash/start_bash_command", nil)
+		req.Header.Set("X-Session-API-Key", "session-key-from-start-response")
+		rr := httptest.NewRecorder()
+
+		nextCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			nextCalled = true
+			w.WriteHeader(http.StatusOK)
+		})
+
+		handler.AuthMiddleware(next).ServeHTTP(rr, req)
+
+		if !nextCalled {
+			t.Error("Next handler should have been called for /sandbox/.../api/bash/...")
+		}
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", rr.Code)
+		}
+	})
+
+	t.Run("GET /sandbox/{id}/api/conversations without X-API-Key is allowed", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/sandbox/a00197a38929f1d32942fa6761ed406a/api/conversations", nil)
+		rr := httptest.NewRecorder()
+
+		nextCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			nextCalled = true
+			w.WriteHeader(http.StatusOK)
+		})
+
+		handler.AuthMiddleware(next).ServeHTTP(rr, req)
+
+		if !nextCalled {
+			t.Error("Next handler should have been called for /sandbox/.../api/conversations")
+		}
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", rr.Code)
+		}
+	})
 }
 
 func TestGetRegistryPrefix(t *testing.T) {

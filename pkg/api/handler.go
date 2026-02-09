@@ -38,23 +38,29 @@ func NewHandler(k8sClient *k8s.Client, stateMgr *state.StateManager, cfg *config
 	}
 }
 
-// pathIsAliveCheck returns true if the request is GET /sandbox/{runtime_id}/alive.
-// OpenHands uses this for health checks and does not send X-API-Key for this request.
-func pathIsAliveCheck(r *http.Request) bool {
-	if r.Method != http.MethodGet {
-		return false
-	}
+// pathIsSandboxProxy returns true if the request is for /sandbox/{runtime_id}/...
+// These requests are reverse-proxied to the sandbox pod. The sandbox validates
+// X-Session-API-Key; the runtime API does not require X-API-Key (management key)
+// for these paths. Covers: /alive health checks, /api/bash/*, /api/conversations,
+// /vscode/*, and all other agent-server endpoints.
+func pathIsSandboxProxy(r *http.Request) bool {
 	path := r.URL.Path
 	const prefix = "/sandbox/"
-	const suffix = "/alive"
-	return strings.HasPrefix(path, prefix) && strings.HasSuffix(path, suffix) && len(path) > len(prefix)+len(suffix)
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	// Must have runtime ID: /sandbox/xxx or /sandbox/xxx/...
+	return len(rest) > 0
 }
 
-// AuthMiddleware validates API key, except for GET /sandbox/{runtime_id}/alive (health check).
+// AuthMiddleware validates API key for management endpoints (/start, /stop, /list, etc.).
+// Paths under /sandbox/{runtime_id}/... bypass this check; they are proxied to the
+// sandbox pod which validates X-Session-API-Key.
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if pathIsAliveCheck(r) {
-			logger.Debug("AuthMiddleware: Allowing unauthenticated GET /sandbox/.../alive")
+		if pathIsSandboxProxy(r) {
+			logger.Debug("AuthMiddleware: Allowing /sandbox/... (auth by sandbox)")
 			next.ServeHTTP(w, r)
 			return
 		}
