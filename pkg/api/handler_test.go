@@ -100,6 +100,26 @@ func TestAuthMiddleware(t *testing.T) {
 			t.Errorf("Expected status 401, got %d", rr.Code)
 		}
 	})
+
+	t.Run("GET /sandbox/{id}/alive without API key is allowed (health check)", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/sandbox/26d5a0654b393db4eb271a5fd797d99b/alive", nil)
+		rr := httptest.NewRecorder()
+
+		nextCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			nextCalled = true
+			w.WriteHeader(http.StatusOK)
+		})
+
+		handler.AuthMiddleware(next).ServeHTTP(rr, req)
+
+		if !nextCalled {
+			t.Error("Next handler should have been called for /sandbox/.../alive")
+		}
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", rr.Code)
+		}
+	})
 }
 
 func TestGetRegistryPrefix(t *testing.T) {

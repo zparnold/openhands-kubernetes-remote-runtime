@@ -38,9 +38,26 @@ func NewHandler(k8sClient *k8s.Client, stateMgr *state.StateManager, cfg *config
 	}
 }
 
-// AuthMiddleware validates API key
+// pathIsAliveCheck returns true if the request is GET /sandbox/{runtime_id}/alive.
+// OpenHands uses this for health checks and does not send X-API-Key for this request.
+func pathIsAliveCheck(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	path := r.URL.Path
+	const prefix = "/sandbox/"
+	const suffix = "/alive"
+	return strings.HasPrefix(path, prefix) && strings.HasSuffix(path, suffix) && len(path) > len(prefix)+len(suffix)
+}
+
+// AuthMiddleware validates API key, except for GET /sandbox/{runtime_id}/alive (health check).
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if pathIsAliveCheck(r) {
+			logger.Debug("AuthMiddleware: Allowing unauthenticated GET /sandbox/.../alive")
+			next.ServeHTTP(w, r)
+			return
+		}
 		apiKey := r.Header.Get("X-API-Key")
 		logger.Debug("AuthMiddleware: Checking API key for %s %s", r.Method, r.URL.Path)
 		if apiKey == "" || apiKey != h.config.APIKey {
