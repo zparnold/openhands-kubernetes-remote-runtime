@@ -149,15 +149,16 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		})
 	}
 
-	// Parse command: accept either exec form ([]string) or single string (run via bash -c)
+	// Use image ENTRYPOINT (e.g. /openhands/entrypoint.sh for update-ca-certificates)
+	// and pass request command as Args so the entrypoint receives them as "$@".
+	// If we set Command we would replace the image ENTRYPOINT and the entrypoint would never run.
 	var command []string
 	var args []string
 	if len(req.Command) > 1 {
-		// Exec form: use slice directly as container Command
-		command = []string(req.Command)
-		args = nil
+		command = nil
+		args = []string(req.Command)
 	} else if len(req.Command) == 1 && req.Command[0] != "" {
-		// Single string: preserve legacy behavior (bash -c)
+		// Single string: run via bash -c (no image entrypoint)
 		command = []string{"/bin/bash", "-c"}
 		args = []string{req.Command[0]}
 	}
