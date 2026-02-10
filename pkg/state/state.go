@@ -3,6 +3,7 @@ package state
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
 )
@@ -21,6 +22,7 @@ type RuntimeInfo struct {
 	IngressName    string
 	RestartCount   int
 	RestartReasons []string
+	CreatedAt      time.Time // Track when the runtime was created for cleanup purposes
 }
 
 // StateManager manages runtime state
