@@ -123,6 +123,13 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		{Name: "WORKER_1", Value: fmt.Sprintf("%d", c.config.Worker1Port)},
 		{Name: "WORKER_2", Value: fmt.Sprintf("%d", c.config.Worker2Port)},
 	}
+	// If custom CA certificate is mounted, set the path to the certificate
+	if c.config.CACertSecretName != "" {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "SSL_CERT_FILE",
+			Value: "/usr/local/share/ca-certificates/additional-ca.crt",
+		})
+	}
 
 	// Add webhook URL if app server URL is configured
 	if c.config.AppServerURL != "" {
