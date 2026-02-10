@@ -294,6 +294,14 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Already running: no-op (e.g. WebSocket recovery calls resume for running sandboxes)
+	if runtimeInfo.Status == types.StatusRunning {
+		logger.Debug("ResumeRuntime: Runtime %s already running, no-op", req.RuntimeID)
+		response := h.buildRuntimeResponse(runtimeInfo)
+		respondJSON(w, http.StatusOK, response)
+		return
+	}
+
 	if runtimeInfo.Status != types.StatusPaused {
 		logger.Debug("ResumeRuntime: Runtime %s is not paused (status: %s)", req.RuntimeID, runtimeInfo.Status)
 		respondError(w, http.StatusBadRequest, "invalid_state", "Runtime is not paused")
