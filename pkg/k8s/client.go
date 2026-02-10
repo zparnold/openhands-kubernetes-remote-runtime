@@ -256,17 +256,14 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: c.config.CACertSecretName,
-					Items: []corev1.KeyToPath{
-						{Key: secretKey, Path: "additional-ca.crt"},
-					},
 				},
 			},
 		}
 		pod.Spec.Volumes = append(pod.Spec.Volumes, vol)
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "ca-certificates",
+			Name:      c.config.CACertSecretName,
 			MountPath: caCertMountPath,
-			SubPath:   "additional-ca.crt",
+			SubPath:   secretKey,
 			ReadOnly:  true,
 		})
 	}
