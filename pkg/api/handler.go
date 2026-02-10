@@ -383,9 +383,23 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 
 	runtimeInfo, err := h.stateMgr.GetRuntimeBySessionID(sessionID)
 	if err != nil {
-		logger.Debug("GetSession: Session not found: %s", sessionID)
-		respondError(w, http.StatusNotFound, "session_not_found", "Session not found")
-		return
+		// State was lost (e.g. runtime API restart); try to discover from Kubernetes
+		if h.k8sClient != nil {
+			ctx := context.Background()
+			if discovered, discoverErr := h.k8sClient.DiscoverRuntimeBySessionID(ctx, sessionID); discoverErr == nil && discovered != nil {
+				logger.Info("GetSession: Recovered session %s from Kubernetes (state was lost)", sessionID)
+				h.stateMgr.AddRuntime(discovered)
+				runtimeInfo = discovered
+			} else {
+				logger.Debug("GetSession: Session not found: %s", sessionID)
+				respondError(w, http.StatusNotFound, "session_not_found", "Session not found")
+				return
+			}
+		} else {
+			logger.Debug("GetSession: Session not found: %s", sessionID)
+			respondError(w, http.StatusNotFound, "session_not_found", "Session not found")
+			return
+		}
 	}
 
 	// Update pod status from Kubernetes
@@ -397,32 +411,59 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 
 // GetSessionsBatch handles GET /sessions/batch
 func (h *Handler) GetSessionsBatch(w http.ResponseWriter, r *http.Request) {
-	idsParam := r.URL.Query().Get("ids")
-	if idsParam == "" {
-		logger.Debug("GetSessionsBatch: Missing 'ids' parameter")
+	// Support both ?ids=1,2,3 and ?ids=1&ids=2&ids=3
+	var sessionIDs []string
+	for _, idStr := range r.URL.Query()["ids"] {
+		for _, id := range strings.Split(idStr, ",") {
+			if trimmed := strings.TrimSpace(id); trimmed != "" {
+				sessionIDs = append(sessionIDs, trimmed)
+			}
+		}
+	}
+	if len(sessionIDs) == 0 {
 		respondError(w, http.StatusBadRequest, "invalid_request", "ids parameter is required")
 		return
 	}
-
-	sessionIDs := strings.Split(idsParam, ",")
 	logger.Debug("GetSessionsBatch: Fetching %d sessions", len(sessionIDs))
-	runtimes := h.stateMgr.GetRuntimesBySessionIDs(sessionIDs)
-	logger.Debug("GetSessionsBatch: Found %d runtimes", len(runtimes))
 
-	responses := make([]types.RuntimeResponse, 0, len(runtimes))
-	for _, runtime := range runtimes {
+	// Build runtimes list, discovering from Kubernetes for any not in state
+	ctx := context.Background()
+	runtimesBySession := make(map[string]*state.RuntimeInfo)
+	for _, sessionID := range sessionIDs {
+		if sessionID == "" {
+			continue
+		}
+		if runtime, err := h.stateMgr.GetRuntimeBySessionID(sessionID); err == nil {
+			runtimesBySession[sessionID] = runtime
+		} else if h.k8sClient != nil {
+			if discovered, discoverErr := h.k8sClient.DiscoverRuntimeBySessionID(ctx, sessionID); discoverErr == nil && discovered != nil {
+				logger.Info("GetSessionsBatch: Recovered session %s from Kubernetes (state was lost)", sessionID)
+				h.stateMgr.AddRuntime(discovered)
+				runtimesBySession[sessionID] = discovered
+			}
+		}
+	}
+
+	responses := make([]types.RuntimeResponse, 0, len(runtimesBySession))
+	for _, sessionID := range sessionIDs {
+		runtime, ok := runtimesBySession[sessionID]
+		if !ok {
+			continue
+		}
 		// Update pod status from Kubernetes
-		ctx := context.Background()
-		if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtime.PodName); err == nil {
-			runtime.PodStatus = statusInfo.Status
-			runtime.RestartCount = statusInfo.RestartCount
-			runtime.RestartReasons = statusInfo.RestartReasons
-			_ = h.stateMgr.UpdateRuntime(runtime)
+		if h.k8sClient != nil {
+			if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtime.PodName); err == nil {
+				runtime.PodStatus = statusInfo.Status
+				runtime.RestartCount = statusInfo.RestartCount
+				runtime.RestartReasons = statusInfo.RestartReasons
+				_ = h.stateMgr.UpdateRuntime(runtime)
+			}
 		}
 
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
 
+	logger.Debug("GetSessionsBatch: Returning %d runtime responses", len(responses))
 	respondJSON(w, http.StatusOK, types.BatchSessionsResponse{Sessions: responses})
 }
 
