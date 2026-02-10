@@ -600,28 +600,8 @@ func (c *Client) RecreatePod(ctx context.Context, req *types.StartRequest, runti
 	return c.createPod(ctx, req, runtimeInfo)
 }
 
-// DiscoverRuntimeBySessionID finds a running sandbox pod by session-id label and
-// reconstructs RuntimeInfo. Used when in-memory state was lost (e.g. runtime API restart).
-// Returns nil if no matching pod exists.
-func (c *Client) DiscoverRuntimeBySessionID(ctx context.Context, sessionID string) (*state.RuntimeInfo, error) {
-	selector := fmt.Sprintf("app=openhands-runtime,session-id=%s", sessionID)
-	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: selector,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list pods: %w", err)
-	}
-	if len(list.Items) == 0 {
-		return nil, nil
-	}
-	pod := &list.Items[0]
-	runtimeID, ok := pod.Labels["runtime-id"]
-	if !ok || runtimeID == "" {
-		return nil, nil
-	}
-	if len(pod.Spec.Containers) == 0 {
-		return nil, nil
-	}
+// buildRuntimeInfoFromPod reconstructs RuntimeInfo from a sandbox pod. Used by discovery functions.
+func (c *Client) buildRuntimeInfoFromPod(ctx context.Context, pod *corev1.Pod, runtimeID, sessionID string) *state.RuntimeInfo {
 	sessionAPIKey := ""
 	for _, env := range pod.Spec.Containers[0].Env {
 		if env.Name == "OH_SESSION_API_KEYS_0" {
@@ -644,7 +624,7 @@ func (c *Client) DiscoverRuntimeBySessionID(ctx context.Context, sessionID strin
 		restartCount = statusInfo.RestartCount
 		restartReasons = statusInfo.RestartReasons
 	}
-	info := &state.RuntimeInfo{
+	return &state.RuntimeInfo{
 		RuntimeID:      runtimeID,
 		SessionID:      sessionID,
 		URL:            baseURL,
@@ -658,7 +638,60 @@ func (c *Client) DiscoverRuntimeBySessionID(ctx context.Context, sessionID strin
 		RestartCount:   restartCount,
 		RestartReasons: restartReasons,
 	}
-	return info, nil
+}
+
+// DiscoverRuntimeBySessionID finds a running sandbox pod by session-id label and
+// reconstructs RuntimeInfo. Used when in-memory state was lost (e.g. runtime API restart).
+// Returns nil if no matching pod exists.
+//
+//nolint:dupl // Mirrors DiscoverRuntimeByRuntimeID; differs only in selector and label extraction
+func (c *Client) DiscoverRuntimeBySessionID(ctx context.Context, sessionID string) (*state.RuntimeInfo, error) {
+	selector := fmt.Sprintf("app=openhands-runtime,session-id=%s", sessionID)
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+	if len(list.Items) == 0 {
+		return nil, nil
+	}
+	pod := &list.Items[0]
+	runtimeID, ok := pod.Labels["runtime-id"]
+	if !ok || runtimeID == "" {
+		return nil, nil
+	}
+	if len(pod.Spec.Containers) == 0 {
+		return nil, nil
+	}
+	return c.buildRuntimeInfoFromPod(ctx, pod, runtimeID, sessionID), nil
+}
+
+// DiscoverRuntimeByRuntimeID finds a sandbox pod by runtime-id label and
+// reconstructs RuntimeInfo. Used when in-memory state was lost (e.g. runtime API restart).
+// Returns nil if no matching pod exists.
+//
+//nolint:dupl // Mirrors DiscoverRuntimeBySessionID; differs only in selector and label extraction
+func (c *Client) DiscoverRuntimeByRuntimeID(ctx context.Context, runtimeID string) (*state.RuntimeInfo, error) {
+	selector := fmt.Sprintf("app=openhands-runtime,runtime-id=%s", runtimeID)
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+	if len(list.Items) == 0 {
+		return nil, nil
+	}
+	pod := &list.Items[0]
+	sessionID, ok := pod.Labels["session-id"]
+	if !ok || sessionID == "" {
+		return nil, nil
+	}
+	if len(pod.Spec.Containers) == 0 {
+		return nil, nil
+	}
+	return c.buildRuntimeInfoFromPod(ctx, pod, runtimeID, sessionID), nil
 }
 
 // WaitForPodReady waits for a pod to become ready

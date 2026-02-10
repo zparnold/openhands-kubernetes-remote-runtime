@@ -574,9 +574,23 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 
 	runtimeInfo, err := h.stateMgr.GetRuntimeByID(runtimeID)
 	if err != nil {
-		logger.Debug("ProxySandbox: Runtime not found: %s", runtimeID)
-		respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
-		return
+		// State was lost (e.g. runtime API restart); try to discover from Kubernetes
+		if h.k8sClient != nil {
+			ctx := context.Background()
+			if discovered, discoverErr := h.k8sClient.DiscoverRuntimeByRuntimeID(ctx, runtimeID); discoverErr == nil && discovered != nil {
+				logger.Info("ProxySandbox: Recovered runtime %s from Kubernetes (state was lost)", runtimeID)
+				h.stateMgr.AddRuntime(discovered)
+				runtimeInfo = discovered
+			} else {
+				logger.Debug("ProxySandbox: Runtime not found: %s", runtimeID)
+				respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
+				return
+			}
+		} else {
+			logger.Debug("ProxySandbox: Runtime not found: %s", runtimeID)
+			respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
+			return
+		}
 	}
 
 	backendURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
