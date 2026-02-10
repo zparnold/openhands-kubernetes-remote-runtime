@@ -464,7 +464,9 @@ func (h *Handler) GetSessionsBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger.Debug("GetSessionsBatch: Returning %d runtime responses", len(responses))
-	respondJSON(w, http.StatusOK, types.BatchSessionsResponse{Sessions: responses})
+	// Return a plain JSON array – the OpenHands app server iterates over the
+	// response directly as a list of runtime objects.
+	respondJSON(w, http.StatusOK, responses)
 }
 
 // GetRegistryPrefix handles GET /registry_prefix
