@@ -116,18 +116,24 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		"session-id": runtimeInfo.SessionID,
 	}
 
-	// Build environment variables
+	// Build environment variables.
+	// Set both OH_SESSION_API_KEYS_0 (app_server convention) and SESSION_API_KEY
+	// (agent server / action_execution_server and webhook client may read either).
 	envVars := []corev1.EnvVar{
 		{Name: "OH_SESSION_API_KEYS_0", Value: runtimeInfo.SessionAPIKey},
+		{Name: "SESSION_API_KEY", Value: runtimeInfo.SessionAPIKey},
 		{Name: "OH_VSCODE_PORT", Value: fmt.Sprintf("%d", c.config.VSCodePort)},
 		{Name: "WORKER_1", Value: fmt.Sprintf("%d", c.config.Worker1Port)},
 		{Name: "WORKER_2", Value: fmt.Sprintf("%d", c.config.Worker2Port)},
 	}
-	// If custom CA certificate is mounted, set the path to the certificate
+	// If custom CA certificate is mounted, point Python/httpx at the system bundle.
+	// The entrypoint runs update-ca-certificates, which merges the mounted cert
+	// into /etc/ssl/certs/ca-certificates.crt. Use that merged bundle so both
+	// system CAs (e.g. for Azure LLM) and the corporate CA are trusted.
 	if c.config.CACertSecretName != "" {
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  "SSL_CERT_FILE",
-			Value: "/usr/local/share/ca-certificates/additional-ca.crt",
+			Value: "/etc/ssl/certs/ca-certificates.crt",
 		})
 	}
 
