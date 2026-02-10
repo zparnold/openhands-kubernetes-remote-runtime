@@ -265,3 +265,44 @@ func TestLoadConfig_ProxyBaseURL(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadConfig_CACert(t *testing.T) {
+	origName := os.Getenv("CA_CERT_SECRET_NAME")
+	origKey := os.Getenv("CA_CERT_SECRET_KEY")
+	defer func() {
+		if origName == "" {
+			os.Unsetenv("CA_CERT_SECRET_NAME")
+		} else {
+			os.Setenv("CA_CERT_SECRET_NAME", origName)
+		}
+		if origKey == "" {
+			os.Unsetenv("CA_CERT_SECRET_KEY")
+		} else {
+			os.Setenv("CA_CERT_SECRET_KEY", origKey)
+		}
+	}()
+
+	t.Run("Empty when unset", func(t *testing.T) {
+		os.Unsetenv("CA_CERT_SECRET_NAME")
+		os.Unsetenv("CA_CERT_SECRET_KEY")
+		cfg := LoadConfig()
+		if cfg.CACertSecretName != "" {
+			t.Errorf("Expected empty CACertSecretName when unset, got %q", cfg.CACertSecretName)
+		}
+		if cfg.CACertSecretKey != "ca-certificates.crt" {
+			t.Errorf("Expected default CACertSecretKey 'ca-certificates.crt', got %q", cfg.CACertSecretKey)
+		}
+	})
+
+	t.Run("Loaded from environment", func(t *testing.T) {
+		os.Setenv("CA_CERT_SECRET_NAME", "ca-certificates")
+		os.Setenv("CA_CERT_SECRET_KEY", "my-ca.crt")
+		cfg := LoadConfig()
+		if cfg.CACertSecretName != "ca-certificates" {
+			t.Errorf("Expected CACertSecretName 'ca-certificates', got %q", cfg.CACertSecretName)
+		}
+		if cfg.CACertSecretKey != "my-ca.crt" {
+			t.Errorf("Expected CACertSecretKey 'my-ca.crt', got %q", cfg.CACertSecretKey)
+		}
+	})
+}

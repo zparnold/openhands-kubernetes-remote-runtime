@@ -39,6 +39,12 @@ type Config struct {
 	// Proxy mode: when set, /start returns URLs under this base (e.g. https://runtime-api.example.com)
 	// so sandbox traffic goes through this API instead of per-sandbox DNS. Avoids DNS propagation delay.
 	ProxyBaseURL string
+
+	// Optional CA certificate for sandbox pods. When set, the secret is mounted into each sandbox
+	// at /usr/local/share/ca-certificates/additional-ca.crt. The runtime image runs update-ca-certificates
+	// at startup, which merges these certs into the system trust store (for corporate/proxy CAs).
+	CACertSecretName string // Kubernetes secret name (e.g. "ca-certificates")
+	CACertSecretKey  string // Key within the secret (default "ca-certificates.crt")
 }
 
 func LoadConfig() *Config {
@@ -60,6 +66,8 @@ func LoadConfig() *Config {
 		AppServerURL:              getEnv("APP_SERVER_URL", ""),
 		AppServerPublicURL:        getEnv("APP_SERVER_PUBLIC_URL", ""),
 		ProxyBaseURL:              strings.TrimSuffix(getEnv("PROXY_BASE_URL", ""), "/"),
+		CACertSecretName:          getEnv("CA_CERT_SECRET_NAME", ""),
+		CACertSecretKey:           getEnv("CA_CERT_SECRET_KEY", "ca-certificates.crt"),
 	}
 }
 

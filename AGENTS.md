@@ -95,6 +95,7 @@ Each sandbox pod includes:
 - Readiness probe on /alive endpoint
 - Support for custom runtime classes (sysbox-runc, gvisor)
 - Optional imagePullSecrets when `IMAGE_PULL_SECRETS` is set (for private registries)
+- Optional CA cert mount when `CA_CERT_SECRET_NAME` is set (for corporate/proxy CAs); cert is mounted at `/usr/local/share/ca-certificates/additional-ca.crt` and merged via `update-ca-certificates` at runtime startup
 
 ## Development Guidelines
 

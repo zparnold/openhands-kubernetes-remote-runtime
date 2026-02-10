@@ -241,6 +241,35 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		}
 	}
 
+	// Mount optional CA certificate for sandbox pods (e.g. corporate/proxy CAs).
+	// The runtime image runs update-ca-certificates at startup, which merges certs
+	// from /usr/local/share/ca-certificates/*.crt into the system trust store.
+	if c.config.CACertSecretName != "" {
+		secretKey := c.config.CACertSecretKey
+		if secretKey == "" {
+			secretKey = "ca-certificates.crt"
+		}
+		const caCertMountPath = "/usr/local/share/ca-certificates/additional-ca.crt"
+		vol := corev1.Volume{
+			Name: "ca-certificates",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: c.config.CACertSecretName,
+					Items: []corev1.KeyToPath{
+						{Key: secretKey, Path: "additional-ca.crt"},
+					},
+				},
+			},
+		}
+		pod.Spec.Volumes = append(pod.Spec.Volumes, vol)
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "ca-certificates",
+			MountPath: caCertMountPath,
+			SubPath:   "additional-ca.crt",
+			ReadOnly:  true,
+		})
+	}
+
 	_, err := c.clientset.CoreV1().Pods(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
 	return err
 }
