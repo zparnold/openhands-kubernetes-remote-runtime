@@ -122,6 +122,7 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 	envVars := []corev1.EnvVar{
 		{Name: "OH_SESSION_API_KEYS_0", Value: runtimeInfo.SessionAPIKey},
 		{Name: "SESSION_API_KEY", Value: runtimeInfo.SessionAPIKey},
+		{Name: "OH_RUNTIME_ID", Value: runtimeInfo.RuntimeID},
 		{Name: "OH_VSCODE_PORT", Value: fmt.Sprintf("%d", c.config.VSCodePort)},
 		{Name: "WORKER_1", Value: fmt.Sprintf("%d", c.config.Worker1Port)},
 		{Name: "WORKER_2", Value: fmt.Sprintf("%d", c.config.Worker2Port)},
