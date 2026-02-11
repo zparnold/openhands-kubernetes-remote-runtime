@@ -14,6 +14,10 @@ type Config struct {
 	LogLevel        string
 	ShutdownTimeout time.Duration
 
+	// Kubernetes operation timeouts
+	K8sOperationTimeout time.Duration // Timeout for create/delete operations (pods, services, ingresses)
+	K8sQueryTimeout     time.Duration // Timeout for get/list operations
+
 	// Kubernetes configuration
 	Namespace    string
 	IngressClass string
@@ -55,6 +59,8 @@ func LoadConfig() *Config {
 		APIKey:                    getEnv("API_KEY", ""),
 		LogLevel:                  getEnv("LOG_LEVEL", "info"),
 		ShutdownTimeout:           getEnvAsDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
+		K8sOperationTimeout:       getEnvAsDuration("K8S_OPERATION_TIMEOUT", 60*time.Second),
+		K8sQueryTimeout:           getEnvAsDuration("K8S_QUERY_TIMEOUT", 10*time.Second),
 		Namespace:                 getEnv("NAMESPACE", "openhands"),
 		IngressClass:              getEnv("INGRESS_CLASS", "nginx"),
 		BaseDomain:                getEnv("BASE_DOMAIN", "sandbox.example.com"),

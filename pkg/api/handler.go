@@ -171,8 +171,9 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 	h.stateMgr.AddRuntime(runtimeInfo)
 	logger.Debug("StartRuntime: Added runtime to state manager")
 
-	// Create sandbox in Kubernetes
-	ctx := context.Background()
+	// Create sandbox in Kubernetes with operation timeout
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sOperationTimeout)
+	defer cancel()
 	logger.Debug("StartRuntime: Creating sandbox in Kubernetes...")
 	if err := h.k8sClient.CreateSandbox(ctx, &req, runtimeInfo); err != nil {
 		// Remove from state on failure
@@ -215,7 +216,8 @@ func (h *Handler) StopRuntime(w http.ResponseWriter, r *http.Request) {
 
 	logger.Debug("StopRuntime: Deleting sandbox for runtime %s (Pod: %s)", req.RuntimeID, runtimeInfo.PodName)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sOperationTimeout)
+	defer cancel()
 	if err := h.k8sClient.DeleteSandbox(ctx, runtimeInfo); err != nil {
 		logger.Info("Failed to delete sandbox: %v", err)
 		respondError(w, http.StatusInternalServerError, "sandbox_deletion_failed", fmt.Sprintf("Failed to delete sandbox: %v", err))
@@ -257,7 +259,8 @@ func (h *Handler) PauseRuntime(w http.ResponseWriter, r *http.Request) {
 	logger.Debug("PauseRuntime: Scaling pod to zero for runtime %s (Pod: %s)", req.RuntimeID, runtimeInfo.PodName)
 
 	// For pause, we delete the pod but keep the state
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sOperationTimeout)
+	defer cancel()
 	if err := h.k8sClient.ScalePodToZero(ctx, runtimeInfo.PodName); err != nil {
 		logger.Info("Failed to pause runtime: %v", err)
 		respondError(w, http.StatusInternalServerError, "pause_failed", fmt.Sprintf("Failed to pause runtime: %v", err))
@@ -320,7 +323,8 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 		SessionID:  runtimeInfo.SessionID,
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sOperationTimeout)
+	defer cancel()
 	if err := h.k8sClient.RecreatePod(ctx, startReq, runtimeInfo); err != nil {
 		logger.Info("Failed to resume runtime: %v", err)
 		respondError(w, http.StatusInternalServerError, "resume_failed", fmt.Sprintf("Failed to resume runtime: %v", err))
@@ -348,13 +352,14 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 	responses := make([]types.RuntimeResponse, 0, len(runtimes))
 	for _, runtime := range runtimes {
 		// Update pod status from Kubernetes
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
 		if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtime.PodName); err == nil {
 			runtime.PodStatus = statusInfo.Status
 			runtime.RestartCount = statusInfo.RestartCount
 			runtime.RestartReasons = statusInfo.RestartReasons
 			_ = h.stateMgr.UpdateRuntime(runtime)
 		}
+		cancel() // Cancel immediately after use in loop
 
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
@@ -393,7 +398,8 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// State was lost (e.g. runtime API restart); try to discover from Kubernetes
 		if h.k8sClient != nil {
-			ctx := context.Background()
+			ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
+			defer cancel()
 			if discovered, discoverErr := h.k8sClient.DiscoverRuntimeBySessionID(ctx, sessionID); discoverErr == nil && discovered != nil {
 				logger.Info("GetSession: Recovered session %s from Kubernetes (state was lost)", sessionID)
 				h.stateMgr.AddRuntime(discovered)
@@ -435,7 +441,8 @@ func (h *Handler) GetSessionsBatch(w http.ResponseWriter, r *http.Request) {
 	logger.Debug("GetSessionsBatch: Fetching %d sessions", len(sessionIDs))
 
 	// Build runtimes list, discovering from Kubernetes for any not in state
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
+	defer cancel()
 	runtimesBySession := make(map[string]*state.RuntimeInfo)
 	for _, sessionID := range sessionIDs {
 		if sessionID == "" {
@@ -524,7 +531,8 @@ func (h *Handler) buildRuntimeResponse(info *state.RuntimeInfo) types.RuntimeRes
 
 // updateRuntimeStatusFromK8s updates runtime info with latest pod status from Kubernetes
 func (h *Handler) updateRuntimeStatusFromK8s(runtimeInfo *state.RuntimeInfo) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), h.config.K8sQueryTimeout)
+	defer cancel()
 	if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtimeInfo.PodName); err == nil {
 		runtimeInfo.PodStatus = statusInfo.Status
 		runtimeInfo.RestartCount = statusInfo.RestartCount
@@ -580,7 +588,8 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// State was lost (e.g. runtime API restart); try to discover from Kubernetes
 		if h.k8sClient != nil {
-			ctx := context.Background()
+			ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
+			defer cancel()
 			if discovered, discoverErr := h.k8sClient.DiscoverRuntimeByRuntimeID(ctx, runtimeID); discoverErr == nil && discovered != nil {
 				logger.Info("ProxySandbox: Recovered runtime %s from Kubernetes (state was lost)", runtimeID)
 				h.stateMgr.AddRuntime(discovered)
