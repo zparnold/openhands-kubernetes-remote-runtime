@@ -4,13 +4,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
 	// Server configuration
-	ServerPort string
-	APIKey     string
-	LogLevel   string
+	ServerPort      string
+	APIKey          string
+	LogLevel        string
+	ShutdownTimeout time.Duration
 
 	// Kubernetes configuration
 	Namespace    string
@@ -52,6 +54,7 @@ func LoadConfig() *Config {
 		ServerPort:                getEnv("SERVER_PORT", "8080"),
 		APIKey:                    getEnv("API_KEY", ""),
 		LogLevel:                  getEnv("LOG_LEVEL", "info"),
+		ShutdownTimeout:           getEnvAsDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
 		Namespace:                 getEnv("NAMESPACE", "openhands"),
 		IngressClass:              getEnv("INGRESS_CLASS", "nginx"),
 		BaseDomain:                getEnv("BASE_DOMAIN", "sandbox.example.com"),
@@ -117,6 +120,15 @@ func getEnvAsInt(key string, defaultVal int) int {
 	if value := os.Getenv(key); value != "" {
 		if intVal, err := strconv.Atoi(value); err == nil {
 			return intVal
+		}
+	}
+	return defaultVal
+}
+
+func getEnvAsDuration(key string, defaultVal time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
 		}
 	}
 	return defaultVal
