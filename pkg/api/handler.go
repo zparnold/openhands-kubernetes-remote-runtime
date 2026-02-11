@@ -624,44 +624,80 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Rewrite Set-Cookie and Location headers to use the correct path for the proxy
-	// VSCode sets cookies without a path, which defaults to the request URL path.
-	// We need to rewrite them to use the sandbox proxy path so cookies work across requests.
-	// Similarly, VSCode redirects need to be rewritten to stay within the proxy path.
-	proxyPath := fmt.Sprintf("/sandbox/%s/", runtimeID)
-	vscodeProxyPath := fmt.Sprintf("/sandbox/%s/vscode", runtimeID)
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		// Rewrite Set-Cookie headers
-		cookies := resp.Header["Set-Cookie"]
-		if len(cookies) > 0 {
-			newCookies := make([]string, 0, len(cookies))
-			for _, cookie := range cookies {
-				// Add Path attribute if not present
-				if !strings.Contains(cookie, "Path=") {
-					cookie = cookie + "; Path=" + proxyPath
-				}
-				newCookies = append(newCookies, cookie)
-			}
-			resp.Header["Set-Cookie"] = newCookies
+	proxy.ModifyResponse = h.createProxyResponseRewriter(runtimeID, backendPort)
+
+	proxy.ServeHTTP(w, r)
+}
+
+// createProxyResponseRewriter creates a response modifier that rewrites Set-Cookie and Location headers
+// to use the correct proxy path format (/sandbox/{runtime_id}/...).
+func (h *Handler) createProxyResponseRewriter(runtimeID string, backendPort int) func(*http.Response) error {
+	return func(resp *http.Response) error {
+		// Determine the proxy prefix based on backend port
+		var proxyPrefix string
+		if backendPort == h.config.VSCodePort {
+			proxyPrefix = fmt.Sprintf("/sandbox/%s/vscode", runtimeID)
+		} else {
+			proxyPrefix = fmt.Sprintf("/sandbox/%s", runtimeID)
 		}
 
-		// Rewrite Location headers for redirects
+		// Rewrite Location header for redirects
 		if location := resp.Header.Get("Location"); location != "" {
-			// Only rewrite relative paths (starting with /)
-			if strings.HasPrefix(location, "/") {
-				// If this is a VSCode proxy request, prepend the vscode proxy path
-				if backendPort == h.config.VSCodePort {
-					resp.Header.Set("Location", vscodeProxyPath+location)
-				} else {
-					// For other services, use the base sandbox proxy path
-					resp.Header.Set("Location", proxyPath+strings.TrimPrefix(location, "/"))
+			// Parse the location URL
+			locURL, err := url.Parse(location)
+			if err == nil && locURL.Host == "" {
+				// Relative URL - prepend proxy prefix
+				if !strings.HasPrefix(locURL.Path, proxyPrefix) {
+					locURL.Path = proxyPrefix + locURL.Path
+					resp.Header.Set("Location", locURL.String())
 				}
+			}
+		}
+
+		// Rewrite Set-Cookie Path attribute
+		cookies := resp.Header.Values("Set-Cookie")
+		if len(cookies) > 0 {
+			resp.Header.Del("Set-Cookie")
+			for _, cookie := range cookies {
+				// Parse the cookie to rewrite the Path attribute
+				rewrittenCookie := rewriteCookiePath(cookie, proxyPrefix)
+				resp.Header.Add("Set-Cookie", rewrittenCookie)
 			}
 		}
 
 		return nil
 	}
+}
 
-	proxy.ServeHTTP(w, r)
+// rewriteCookiePath rewrites the Path attribute in a Set-Cookie header value.
+// If no Path is present, adds Path=proxyPrefix. If Path=/, changes to Path=proxyPrefix.
+func rewriteCookiePath(cookieHeader, proxyPrefix string) string {
+	// Split cookie into attributes
+	parts := strings.Split(cookieHeader, ";")
+	hasPath := false
+	for i, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if strings.HasPrefix(strings.ToLower(trimmed), "path=") {
+			hasPath = true
+			// Extract current path value
+			pathValue := strings.TrimPrefix(trimmed, "path=")
+			pathValue = strings.TrimPrefix(pathValue, "Path=")
+			pathValue = strings.TrimPrefix(pathValue, "PATH=")
+			pathValue = strings.TrimSpace(pathValue)
+
+			// Rewrite root path to proxy prefix
+			if pathValue == "/" || pathValue == "" {
+				parts[i] = " Path=" + proxyPrefix
+			}
+		}
+	}
+
+	// If no Path attribute found, add it
+	if !hasPath {
+		parts = append(parts, " Path="+proxyPrefix)
+	}
+
+	return strings.Join(parts, ";")
 }
 
 // Helper functions
