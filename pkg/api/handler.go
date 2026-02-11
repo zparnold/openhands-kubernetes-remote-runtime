@@ -561,7 +561,11 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 		if parts[1] == "vscode" {
 			backendPath = "/"
 		} else {
-			backendPath = "/" + strings.TrimPrefix(parts[1], "vscode")
+			// Remove "vscode" prefix and ensure we don't create double slashes
+			backendPath = strings.TrimPrefix(parts[1], "vscode")
+			if !strings.HasPrefix(backendPath, "/") {
+				backendPath = "/" + backendPath
+			}
 		}
 	} else {
 		backendPort = h.config.AgentServerPort
