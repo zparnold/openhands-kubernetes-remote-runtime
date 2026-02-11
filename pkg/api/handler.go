@@ -623,11 +623,14 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Rewrite Set-Cookie headers to use the correct path for the proxy
+	// Rewrite Set-Cookie and Location headers to use the correct path for the proxy
 	// VSCode sets cookies without a path, which defaults to the request URL path.
 	// We need to rewrite them to use the sandbox proxy path so cookies work across requests.
+	// Similarly, VSCode redirects need to be rewritten to stay within the proxy path.
 	proxyPath := fmt.Sprintf("/sandbox/%s/", runtimeID)
+	vscodeProxyPath := fmt.Sprintf("/sandbox/%s/vscode", runtimeID)
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		// Rewrite Set-Cookie headers
 		cookies := resp.Header["Set-Cookie"]
 		if len(cookies) > 0 {
 			newCookies := make([]string, 0, len(cookies))
@@ -640,6 +643,21 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 			}
 			resp.Header["Set-Cookie"] = newCookies
 		}
+
+		// Rewrite Location headers for redirects
+		if location := resp.Header.Get("Location"); location != "" {
+			// Only rewrite relative paths (starting with /)
+			if strings.HasPrefix(location, "/") {
+				// If this is a VSCode proxy request, prepend the vscode proxy path
+				if backendPort == h.config.VSCodePort {
+					resp.Header.Set("Location", vscodeProxyPath+location)
+				} else {
+					// For other services, use the base sandbox proxy path
+					resp.Header.Set("Location", proxyPath+strings.TrimPrefix(location, "/"))
+				}
+			}
+		}
+
 		return nil
 	}
 
