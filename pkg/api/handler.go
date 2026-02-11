@@ -622,6 +622,27 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 			req.Header.Set("X-Session-API-Key", v)
 		}
 	}
+
+	// Rewrite Set-Cookie headers to use the correct path for the proxy
+	// VSCode sets cookies without a path, which defaults to the request URL path.
+	// We need to rewrite them to use the sandbox proxy path so cookies work across requests.
+	proxyPath := fmt.Sprintf("/sandbox/%s/", runtimeID)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		cookies := resp.Header["Set-Cookie"]
+		if len(cookies) > 0 {
+			newCookies := make([]string, 0, len(cookies))
+			for _, cookie := range cookies {
+				// Add Path attribute if not present
+				if !strings.Contains(cookie, "Path=") {
+					cookie = cookie + "; Path=" + proxyPath
+				}
+				newCookies = append(newCookies, cookie)
+			}
+			resp.Header["Set-Cookie"] = newCookies
+		}
+		return nil
+	}
+
 	proxy.ServeHTTP(w, r)
 }
 
