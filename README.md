@@ -12,6 +12,7 @@ A Kubernetes-compatible runtime service for OpenHands that provisions sandbox po
 - ✅ Subdomain-based routing for agent server, VSCode, and worker ports
 - ✅ Kubernetes pod provisioning with proper resource management
 - ✅ Session management with pause/resume capabilities
+- ✅ Automatic idle sandbox cleanup (configurable timeout)
 - ✅ API key authentication
 - ✅ Support for custom runtime classes (sysbox-runc, gvisor)
 - ✅ Structured logging and error handling
@@ -233,6 +234,24 @@ Environment variables:
 | `APP_SERVER_URL` | (optional) | OpenHands app server URL for webhooks |
 | `APP_SERVER_PUBLIC_URL` | (optional) | Public URL for CORS configuration |
 | `PROXY_BASE_URL` | (optional) | When set, sandbox URLs are served via this API (e.g. `https://runtime-api.your-domain.com`) so only one DNS record is needed; avoids DNS propagation delay for new sandboxes |
+| `IDLE_TIMEOUT_HOURS` | `12` | Hours of inactivity before a sandbox is automatically cleaned up |
+| `REAPER_CHECK_INTERVAL` | `15m` | How often to check for idle sandboxes (e.g. `15m`, `30m`, `1h`) |
+
+### Idle Sandbox Cleanup
+
+The runtime API automatically cleans up sandbox pods that have been idle for a configurable duration. This helps prevent resource waste from forgotten or orphaned sandboxes.
+
+- **Activity tracking**: The last activity timestamp is updated whenever the sandbox receives API requests through the proxy endpoint (`/sandbox/{runtime_id}`)
+- **Automatic cleanup**: A background reaper process runs every `REAPER_CHECK_INTERVAL` and removes sandboxes idle for more than `IDLE_TIMEOUT_HOURS`
+- **Graceful shutdown**: Cleanup deletes the pod, service, and ingress resources and removes the runtime from state
+- **Only running sandboxes**: Paused or stopped sandboxes are not affected by the idle timeout
+- **Logged**: All cleanup operations are logged with the sandbox ID and idle duration
+
+Example configuration for shorter timeout (useful for development):
+```bash
+IDLE_TIMEOUT_HOURS=2      # Clean up after 2 hours of inactivity
+REAPER_CHECK_INTERVAL=10m # Check every 10 minutes
+```
 
 ### Debug Logging
 

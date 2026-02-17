@@ -27,14 +27,22 @@ The OpenHands Kubernetes Remote Runtime is a Go-based service that provisions sa
    - In-memory runtime state tracking
    - Thread-safe operations with mutex locks
    - Efficient lookups by runtime ID and session ID
+   - Activity timestamp tracking for idle timeout
    - **Test Coverage**: 100%
 
-4. **Configuration** (`pkg/config/config.go`)
+4. **Idle Sandbox Reaper** (`pkg/reaper/reaper.go`)
+   - Background goroutine for automatic cleanup
+   - Configurable idle timeout (default: 12 hours)
+   - Periodic checks (default: every 15 minutes)
+   - Graceful cleanup of idle sandboxes
+   - **Test Coverage**: ~90%
+
+5. **Configuration** (`pkg/config/config.go`)
    - Environment-based configuration
    - Sensible defaults for all settings
    - **Test Coverage**: 100%
 
-5. **Type Definitions** (`pkg/types/types.go`)
+6. **Type Definitions** (`pkg/types/types.go`)
    - Request/response models
    - Status enumerations
    - Shared data structures
@@ -119,6 +127,7 @@ Each sandbox pod includes:
 |---------|----------|----------|
 | pkg/config | 100% | ✅ Complete |
 | pkg/state | 100% | ✅ Complete |
+| pkg/reaper | ~90% | ✅ Complete |
 | pkg/api | ~28% | ⚠️ Needs improvement |
 | pkg/types | N/A | N/A |
 | pkg/k8s | 0% | ⚠️ High priority - needs mocking |
