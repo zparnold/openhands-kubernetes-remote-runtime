@@ -150,15 +150,16 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 	sessionIDForHost := strings.ToLower(req.SessionID)
 	// Build runtime info
 	runtimeInfo := &state.RuntimeInfo{
-		RuntimeID:     runtimeID,
-		SessionID:     req.SessionID,
-		URL:           fmt.Sprintf("https://%s.%s", sessionIDForHost, h.config.BaseDomain),
-		SessionAPIKey: sessionAPIKey,
-		Status:        types.StatusPending,
-		PodStatus:     types.PodStatusPending,
-		PodName:       fmt.Sprintf("runtime-%s", runtimeID),
-		ServiceName:   fmt.Sprintf("runtime-%s", runtimeID),
-		IngressName:   fmt.Sprintf("runtime-%s", runtimeID),
+		RuntimeID:        runtimeID,
+		SessionID:        req.SessionID,
+		URL:              fmt.Sprintf("https://%s.%s", sessionIDForHost, h.config.BaseDomain),
+		SessionAPIKey:    sessionAPIKey,
+		Status:           types.StatusPending,
+		PodStatus:        types.PodStatusPending,
+		PodName:          fmt.Sprintf("runtime-%s", runtimeID),
+		ServiceName:      fmt.Sprintf("runtime-%s", runtimeID),
+		IngressName:      fmt.Sprintf("runtime-%s", runtimeID),
+		LastActivityTime: time.Now(), // Initialize activity timestamp
 		WorkHosts: map[string]int{
 			fmt.Sprintf("https://work-1-%s.%s", sessionIDForHost, h.config.BaseDomain): h.config.Worker1Port,
 			fmt.Sprintf("https://work-2-%s.%s", sessionIDForHost, h.config.BaseDomain): h.config.Worker2Port,
@@ -605,6 +606,9 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Update last activity time for this sandbox
+	_ = h.stateMgr.UpdateLastActivity(runtimeID)
 
 	backendURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
 		runtimeInfo.ServiceName, h.config.Namespace, backendPort, backendPath)

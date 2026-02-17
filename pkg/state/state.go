@@ -3,24 +3,26 @@ package state
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
 )
 
 // RuntimeInfo stores information about a runtime
 type RuntimeInfo struct {
-	RuntimeID      string
-	SessionID      string
-	URL            string
-	SessionAPIKey  string
-	Status         types.RuntimeStatus
-	PodStatus      types.PodStatus
-	WorkHosts      map[string]int
-	PodName        string
-	ServiceName    string
-	IngressName    string
-	RestartCount   int
-	RestartReasons []string
+	RuntimeID        string
+	SessionID        string
+	URL              string
+	SessionAPIKey    string
+	Status           types.RuntimeStatus
+	PodStatus        types.PodStatus
+	WorkHosts        map[string]int
+	PodName          string
+	ServiceName      string
+	IngressName      string
+	RestartCount     int
+	RestartReasons   []string
+	LastActivityTime time.Time // Track last activity for idle timeout
 }
 
 // StateManager manages runtime state
@@ -124,4 +126,18 @@ func (s *StateManager) GetRuntimesBySessionIDs(sessionIDs []string) []*RuntimeIn
 		}
 	}
 	return runtimes
+}
+
+// UpdateLastActivity updates the last activity timestamp for a runtime
+func (s *StateManager) UpdateLastActivity(runtimeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	info, exists := s.runtimeByID[runtimeID]
+	if !exists {
+		return fmt.Errorf("runtime not found: %s", runtimeID)
+	}
+
+	info.LastActivityTime = time.Now()
+	return nil
 }

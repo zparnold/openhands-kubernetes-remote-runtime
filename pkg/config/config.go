@@ -51,6 +51,10 @@ type Config struct {
 	// at startup, which merges these certs into the system trust store (for corporate/proxy CAs).
 	CACertSecretName string // Kubernetes secret name (e.g. "ca-certificates")
 	CACertSecretKey  string // Key within the secret (default "ca-certificates.crt")
+
+	// Idle timeout reaper configuration
+	IdleTimeoutHours    int           // Idle timeout in hours before reaping sandboxes (default: 12)
+	ReaperCheckInterval time.Duration // How often to check for idle sandboxes (default: 15 minutes)
 }
 
 func LoadConfig() *Config {
@@ -77,6 +81,8 @@ func LoadConfig() *Config {
 		ProxyBaseURL:              strings.TrimSuffix(getEnv("PROXY_BASE_URL", ""), "/"),
 		CACertSecretName:          getEnv("CA_CERT_SECRET_NAME", ""),
 		CACertSecretKey:           getEnv("CA_CERT_SECRET_KEY", "ca-certificates.crt"),
+		IdleTimeoutHours:          getEnvAsInt("IDLE_TIMEOUT_HOURS", 12),
+		ReaperCheckInterval:       getEnvAsDuration("REAPER_CHECK_INTERVAL", 15*time.Minute),
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/k8s"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/reaper"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 )
 
@@ -43,6 +44,10 @@ func main() {
 
 	// Initialize API handler
 	handler := api.NewHandler(k8sClient, stateMgr, cfg)
+
+	// Initialize and start idle sandbox reaper
+	reaperInstance := reaper.NewReaper(stateMgr, k8sClient, cfg)
+	reaperInstance.Start()
 
 	// Setup router
 	router := mux.NewRouter()
@@ -116,6 +121,9 @@ func main() {
 	sig := <-quit
 	logger.Info("Received shutdown signal: %v", sig)
 	logger.Info("Gracefully shutting down server...")
+
+	// Stop the reaper
+	reaperInstance.Stop()
 
 	// Create a context with timeout for graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
