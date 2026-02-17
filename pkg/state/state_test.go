@@ -260,7 +260,7 @@ func TestUpdateLastActivity(t *testing.T) {
 	sm.AddRuntime(info)
 
 	t.Run("Update existing runtime activity", func(t *testing.T) {
-		// Get initial activity time (should be zero)
+		// Get initial activity time
 		retrieved, _ := sm.GetRuntimeByID("runtime-123")
 		initialTime := retrieved.LastActivityTime
 

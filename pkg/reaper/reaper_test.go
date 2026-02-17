@@ -27,7 +27,6 @@ func TestNewReaper(t *testing.T) {
 		K8sOperationTimeout: 60 * time.Second,
 	}
 	stateMgr := state.NewStateManager()
-	mockClient := &mockK8sClient{}
 
 	reaper := NewReaper(stateMgr, nil, cfg)
 	if reaper == nil {
@@ -39,7 +38,6 @@ func TestNewReaper(t *testing.T) {
 	if reaper.checkInterval != 15*time.Minute {
 		t.Errorf("Expected check interval of 15 minutes, got %v", reaper.checkInterval)
 	}
-	_ = mockClient
 }
 
 func TestReaper_ReapIdleSandbox(t *testing.T) {
