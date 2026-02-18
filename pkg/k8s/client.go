@@ -636,19 +636,29 @@ func (c *Client) buildRuntimeInfoFromPod(ctx context.Context, pod *corev1.Pod, r
 		restartCount = statusInfo.RestartCount
 		restartReasons = statusInfo.RestartReasons
 	}
+	// Use the pod's actual creation time so that cleanup thresholds are measured
+	// from when the pod was originally created, not from when it was discovered.
+	// This prevents discovered pods from being immediately reaped as idle
+	// (zero-value CreatedAt/LastActivityTime would look like 2000+ years idle).
+	createdAt := pod.CreationTimestamp.Time
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
 	return &state.RuntimeInfo{
-		RuntimeID:      runtimeID,
-		SessionID:      sessionID,
-		URL:            baseURL,
-		SessionAPIKey:  sessionAPIKey,
-		Status:         types.StatusRunning,
-		PodStatus:      podStatus,
-		WorkHosts:      workHosts,
-		PodName:        pod.Name,
-		ServiceName:    pod.Name,
-		IngressName:    pod.Name,
-		RestartCount:   restartCount,
-		RestartReasons: restartReasons,
+		RuntimeID:        runtimeID,
+		SessionID:        sessionID,
+		URL:              baseURL,
+		SessionAPIKey:    sessionAPIKey,
+		Status:           types.StatusRunning,
+		PodStatus:        podStatus,
+		WorkHosts:        workHosts,
+		PodName:          pod.Name,
+		ServiceName:      pod.Name,
+		IngressName:      pod.Name,
+		RestartCount:     restartCount,
+		RestartReasons:   restartReasons,
+		CreatedAt:        createdAt,
+		LastActivityTime: time.Now(),
 	}
 }
 

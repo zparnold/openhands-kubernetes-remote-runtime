@@ -183,17 +183,16 @@ func (s *Service) shouldCleanupRuntime(runtime *state.RuntimeInfo, podStatus *k8
 		}
 	}
 
-	// Check if pod has been idle for too long
-	// We consider a pod idle if it's been running (or in any non-failed state) for longer than the idle threshold
-	// This is a simple time-based check; a more sophisticated approach would check actual activity:
-	//   - Track last API request time per runtime (requires updating RuntimeInfo on each request)
-	//   - Monitor container resource usage (CPU/memory)
-	//   - Check application-specific metrics (e.g., last command execution time)
-	// Current implementation: Simple time-based cleanup that triggers after CLEANUP_IDLE_THRESHOLD_MINUTES
-	// regardless of whether the pod is actively being used
+	// Check if pod has been idle for too long based on last activity time.
+	// LastActivityTime is updated on every proxied request (ProxySandbox handler)
+	// and on activity heartbeats from the app-server.
 	if podStatus.Status != types.PodStatusFailed && podStatus.Status != types.PodStatusCrashLoopBackOff {
 		idleThreshold := time.Duration(s.config.CleanupIdleThresholdMin) * time.Minute
-		if now.Sub(runtime.CreatedAt) >= idleThreshold {
+		lastActive := runtime.LastActivityTime
+		if lastActive.IsZero() {
+			lastActive = runtime.CreatedAt
+		}
+		if now.Sub(lastActive) >= idleThreshold {
 			return true, "pod_idle"
 		}
 	}
