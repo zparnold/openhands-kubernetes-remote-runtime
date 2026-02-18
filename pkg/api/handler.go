@@ -627,7 +627,7 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy := httputil.NewSingleHostReverseProxy(target) //nolint:gosec // G704: target is built from trusted pod IP, not user input
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
@@ -649,7 +649,7 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	// Rewrite Set-Cookie and Location headers to use the correct path for the proxy
 	proxy.ModifyResponse = h.createProxyResponseRewriter(runtimeID, backendPort)
 
-	proxy.ServeHTTP(w, r)
+	proxy.ServeHTTP(w, r) //nolint:gosec // G704: proxy target is a trusted internal pod address
 }
 
 // createProxyResponseRewriter creates a response modifier that rewrites Set-Cookie and Location headers

@@ -10,7 +10,7 @@ import (
 type Config struct {
 	// Server configuration
 	ServerPort      string
-	APIKey          string
+	APIKey          string //nolint:gosec // G117: not a hardcoded secret, loaded from env
 	LogLevel        string
 	ShutdownTimeout time.Duration
 
