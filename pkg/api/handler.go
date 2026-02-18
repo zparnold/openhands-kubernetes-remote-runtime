@@ -547,7 +547,9 @@ func (h *Handler) updateRuntimeStatusFromK8s(runtimeInfo *state.RuntimeInfo) {
 // Path format: /sandbox/{runtime_id}/... or /sandbox/{runtime_id}/vscode/...
 // Used when PROXY_BASE_URL is set to avoid per-sandbox DNS (single stable DNS for the runtime API).
 func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
+	// Use EscapedPath to preserve percent-encoding (e.g. %2F in file upload paths).
+	// r.URL.Path is decoded so %2F becomes / — we need the raw form for the backend.
+	path := r.URL.EscapedPath()
 	const prefix = "/sandbox/"
 	if !strings.HasPrefix(path, prefix) {
 		respondError(w, http.StatusNotFound, "not_found", "Not found")
@@ -558,31 +560,33 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "not_found", "Not found")
 		return
 	}
+	// Split on first "/" only — runtime ID is never percent-encoded
 	parts := strings.SplitN(rest, "/", 2)
 	runtimeID := parts[0]
 	if runtimeID == "" {
 		respondError(w, http.StatusNotFound, "not_found", "Not found")
 		return
 	}
-	var backendPath string
+	// backendRawPath preserves percent-encoding from the original request
+	var backendRawPath string
 	var backendPort int
 	if len(parts) == 2 && (parts[1] == "vscode" || strings.HasPrefix(parts[1], "vscode/")) {
 		backendPort = h.config.VSCodePort
 		if parts[1] == "vscode" {
-			backendPath = "/"
+			backendRawPath = "/"
 		} else {
 			// Remove "vscode" prefix and ensure we don't create double slashes
-			backendPath = strings.TrimPrefix(parts[1], "vscode")
-			if !strings.HasPrefix(backendPath, "/") {
-				backendPath = "/" + backendPath
+			backendRawPath = strings.TrimPrefix(parts[1], "vscode")
+			if !strings.HasPrefix(backendRawPath, "/") {
+				backendRawPath = "/" + backendRawPath
 			}
 		}
 	} else {
 		backendPort = h.config.AgentServerPort
 		if len(parts) == 2 {
-			backendPath = "/" + parts[1]
+			backendRawPath = "/" + parts[1]
 		} else {
-			backendPath = "/"
+			backendRawPath = "/"
 		}
 	}
 
@@ -611,9 +615,12 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	// Update last activity time for this sandbox
 	_ = h.stateMgr.UpdateLastActivity(runtimeID)
 
-	backendURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
-		runtimeInfo.ServiceName, h.config.Namespace, backendPort, backendPath)
-	target, err := url.Parse(backendURL)
+	// Build backend URL with the raw (percent-encoded) path preserved.
+	// We construct scheme+host separately and set the path via RawPath so that
+	// url.Parse does not decode percent-encoded characters (e.g. %2F → /).
+	backendBase := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+		runtimeInfo.ServiceName, h.config.Namespace, backendPort)
+	target, err := url.Parse(backendBase)
 	if err != nil {
 		logger.Debug("ProxySandbox: Invalid backend URL: %v", err)
 		respondError(w, http.StatusInternalServerError, "proxy_error", "Invalid backend URL")
@@ -624,8 +631,10 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
-		req.URL.Path = target.Path
-		req.URL.RawPath = target.RawPath
+		// Set both Path (decoded, for Go internals) and RawPath (encoded, sent on wire)
+		decodedPath, _ := url.PathUnescape(backendRawPath)
+		req.URL.Path = decodedPath
+		req.URL.RawPath = backendRawPath
 		req.URL.RawQuery = r.URL.RawQuery
 		req.Host = target.Host
 		if req.Header == nil {

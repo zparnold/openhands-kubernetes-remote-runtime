@@ -60,6 +60,12 @@ func main() {
 
 	// Setup router
 	router := mux.NewRouter()
+	// Disable path cleaning so percent-encoded characters (e.g. %2F in file upload
+	// paths) are preserved and not 301-redirected to their decoded equivalents.
+	// Without this, POST /sandbox/.../api/file/upload/%2Fworkspace%2Ffile.txt gets
+	// redirected to /sandbox/.../api/file/upload/workspace/file.txt — browsers follow
+	// 301 as GET, causing 405 on the POST-only upload endpoint.
+	router.SkipClean(true)
 
 	// Health check endpoints (no auth required) - must be registered before auth middleware
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
