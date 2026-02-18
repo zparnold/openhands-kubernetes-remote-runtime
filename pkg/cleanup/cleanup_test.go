@@ -156,7 +156,7 @@ func TestNewService(t *testing.T) {
 	s := NewService(nil, nil, cfg)
 
 	if s == nil {
-		t.Error("NewService() returned nil")
+		t.Fatal("NewService() returned nil")
 	}
 	if s.config != cfg {
 		t.Error("NewService() config not set correctly")

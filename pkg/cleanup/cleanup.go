@@ -146,9 +146,10 @@ func (s *Service) runCleanup(ctx context.Context) {
 			}
 
 			cleanedCount++
-			if reason == "pod_failed" {
+			switch reason {
+			case "pod_failed":
 				failedCount++
-			} else if reason == "pod_idle" {
+			case "pod_idle":
 				idleCount++
 			}
 
