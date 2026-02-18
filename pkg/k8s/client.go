@@ -138,15 +138,6 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		})
 	}
 
-	// Add webhook URL if app server URL is configured
-	if c.config.AppServerURL != "" {
-		webhookURL := fmt.Sprintf("%s/api/v1/webhooks", c.config.AppServerURL)
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  "OH_WEBHOOKS_0_BASE_URL",
-			Value: webhookURL,
-		})
-	}
-
 	// Add CORS origins if app server public URL is configured
 	if c.config.AppServerPublicURL != "" {
 		envVars = append(envVars, corev1.EnvVar{
@@ -160,6 +151,18 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  key,
 			Value: value,
+		})
+	}
+
+	// Add webhook URL if app server URL is configured.
+	// This is set AFTER custom env vars so the runtime API's internal
+	// cluster URL overrides the app-server's external URL. In Kubernetes,
+	// when duplicate env var names exist the last one wins.
+	if c.config.AppServerURL != "" {
+		webhookURL := fmt.Sprintf("%s/api/v1/webhooks", c.config.AppServerURL)
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "OH_WEBHOOKS_0_BASE_URL",
+			Value: webhookURL,
 		})
 	}
 
