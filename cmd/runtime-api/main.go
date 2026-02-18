@@ -77,8 +77,8 @@ func main() {
 	authRouter.HandleFunc("/resume", handler.ResumeRuntime).Methods("POST")
 	authRouter.HandleFunc("/list", handler.ListRuntimes).Methods("GET")
 	authRouter.HandleFunc("/runtime/{runtime_id}", handler.GetRuntime).Methods("GET")
-	authRouter.HandleFunc("/sessions/{session_id}", handler.GetSession).Methods("GET")
 	authRouter.HandleFunc("/sessions/batch", handler.GetSessionsBatch).Methods("GET")
+	authRouter.HandleFunc("/sessions/{session_id}", handler.GetSession).Methods("GET")
 	authRouter.HandleFunc("/registry_prefix", handler.GetRegistryPrefix).Methods("GET")
 	authRouter.HandleFunc("/image_exists", handler.CheckImageExists).Methods("GET")
 
@@ -109,28 +109,34 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Handle graceful shutdown
+	// Run server in a goroutine so it doesn't block
 	go func() {
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-		<-sigChan
-		logger.Info("Shutdown signal received")
-
-		// Create a deadline for shutdown
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer shutdownCancel()
-
-		// Stop cleanup service
-		cleanupSvc.Stop()
-
-		// Shutdown HTTP server
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			logger.Info("HTTP server shutdown error: %v", err)
+		logger.Info("HTTP server starting...")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Failed to start server: %v", err)
+	// Set up channel to listen for interrupt or terminate signals
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+
+	// Block until we receive a signal
+	sig := <-quit
+	logger.Info("Received shutdown signal: %v", sig)
+	logger.Info("Gracefully shutting down server...")
+
+	// Create a context with timeout for graceful shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer shutdownCancel()
+
+	// Stop cleanup service
+	cleanupSvc.Stop()
+
+	// Attempt graceful shutdown
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Info("Server forced to shutdown: %v", err)
+		os.Exit(1)
 	}
 
 	logger.Info("Server shutdown complete")

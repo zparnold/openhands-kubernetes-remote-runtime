@@ -4,13 +4,19 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
 	// Server configuration
-	ServerPort string
-	APIKey     string
-	LogLevel   string
+	ServerPort      string
+	APIKey          string
+	LogLevel        string
+	ShutdownTimeout time.Duration
+
+	// Kubernetes operation timeouts
+	K8sOperationTimeout time.Duration // Timeout for create/delete operations (pods, services, ingresses)
+	K8sQueryTimeout     time.Duration // Timeout for get/list operations
 
 	// Kubernetes configuration
 	Namespace    string
@@ -45,6 +51,12 @@ type Config struct {
 	CleanupIntervalMinutes    int  // Interval between cleanup runs (in minutes)
 	CleanupFailedThresholdMin int  // Time before cleaning up failed pods (in minutes)
 	CleanupIdleThresholdMin   int  // Time before cleaning up idle pods (in minutes)
+
+	// Optional CA certificate for sandbox pods. When set, the secret is mounted into each sandbox
+	// at /usr/local/share/ca-certificates/additional-ca.crt. The runtime image runs update-ca-certificates
+	// at startup, which merges these certs into the system trust store (for corporate/proxy CAs).
+	CACertSecretName string // Kubernetes secret name (e.g. "ca-certificates")
+	CACertSecretKey  string // Key within the secret (default "ca-certificates.crt")
 }
 
 func LoadConfig() *Config {
@@ -52,6 +64,9 @@ func LoadConfig() *Config {
 		ServerPort:                getEnv("SERVER_PORT", "8080"),
 		APIKey:                    getEnv("API_KEY", ""),
 		LogLevel:                  getEnv("LOG_LEVEL", "info"),
+		ShutdownTimeout:           getEnvAsDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
+		K8sOperationTimeout:       getEnvAsDuration("K8S_OPERATION_TIMEOUT", 60*time.Second),
+		K8sQueryTimeout:           getEnvAsDuration("K8S_QUERY_TIMEOUT", 10*time.Second),
 		Namespace:                 getEnv("NAMESPACE", "openhands"),
 		IngressClass:              getEnv("INGRESS_CLASS", "nginx"),
 		BaseDomain:                getEnv("BASE_DOMAIN", "sandbox.example.com"),
@@ -70,6 +85,8 @@ func LoadConfig() *Config {
 		CleanupIntervalMinutes:    getEnvAsInt("CLEANUP_INTERVAL_MINUTES", 5),
 		CleanupFailedThresholdMin: getEnvAsInt("CLEANUP_FAILED_THRESHOLD_MINUTES", 60),
 		CleanupIdleThresholdMin:   getEnvAsInt("CLEANUP_IDLE_THRESHOLD_MINUTES", 1440), // 24 hours
+		CACertSecretName:          getEnv("CA_CERT_SECRET_NAME", ""),
+		CACertSecretKey:           getEnv("CA_CERT_SECRET_KEY", "ca-certificates.crt"),
 	}
 }
 
@@ -129,10 +146,15 @@ func getEnvAsBool(key string, defaultVal bool) bool {
 		if boolVal, err := strconv.ParseBool(value); err == nil {
 			return boolVal
 		}
-		// Log warning if parsing fails (accepts: 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False)
-		// Falls back to default value for invalid input
-		// Note: Logger may not be initialized yet when config loads, so we use log package
-		// Users should check logs if their boolean config doesn't work as expected
+	}
+	return defaultVal
+}
+
+func getEnvAsDuration(key string, defaultVal time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
+		}
 	}
 	return defaultVal
 }

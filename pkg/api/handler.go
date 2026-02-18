@@ -38,9 +38,32 @@ func NewHandler(k8sClient *k8s.Client, stateMgr *state.StateManager, cfg *config
 	}
 }
 
-// AuthMiddleware validates API key
+// pathIsSandboxProxy returns true if the request is for /sandbox/{runtime_id}/...
+// These requests are reverse-proxied to the sandbox pod. The sandbox validates
+// X-Session-API-Key; the runtime API does not require X-API-Key (management key)
+// for these paths. Covers: /alive health checks, /api/bash/*, /api/conversations,
+// /vscode/*, and all other agent-server endpoints.
+func pathIsSandboxProxy(r *http.Request) bool {
+	path := r.URL.Path
+	const prefix = "/sandbox/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	// Must have runtime ID: /sandbox/xxx or /sandbox/xxx/...
+	return len(rest) > 0
+}
+
+// AuthMiddleware validates API key for management endpoints (/start, /stop, /list, etc.).
+// Paths under /sandbox/{runtime_id}/... bypass this check; they are proxied to the
+// sandbox pod which validates X-Session-API-Key.
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if pathIsSandboxProxy(r) {
+			logger.Debug("AuthMiddleware: Allowing /sandbox/... (auth by sandbox)")
+			next.ServeHTTP(w, r)
+			return
+		}
 		apiKey := r.Header.Get("X-API-Key")
 		logger.Debug("AuthMiddleware: Checking API key for %s %s", r.Method, r.URL.Path)
 		if apiKey == "" || apiKey != h.config.APIKey {
@@ -149,8 +172,9 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 	h.stateMgr.AddRuntime(runtimeInfo)
 	logger.Debug("StartRuntime: Added runtime to state manager")
 
-	// Create sandbox in Kubernetes
-	ctx := context.Background()
+	// Create sandbox in Kubernetes with operation timeout
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sOperationTimeout)
+	defer cancel()
 	logger.Debug("StartRuntime: Creating sandbox in Kubernetes...")
 	if err := h.k8sClient.CreateSandbox(ctx, &req, runtimeInfo); err != nil {
 		// Remove from state on failure
@@ -193,7 +217,8 @@ func (h *Handler) StopRuntime(w http.ResponseWriter, r *http.Request) {
 
 	logger.Debug("StopRuntime: Deleting sandbox for runtime %s (Pod: %s)", req.RuntimeID, runtimeInfo.PodName)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sOperationTimeout)
+	defer cancel()
 	if err := h.k8sClient.DeleteSandbox(ctx, runtimeInfo); err != nil {
 		logger.Info("Failed to delete sandbox: %v", err)
 		respondError(w, http.StatusInternalServerError, "sandbox_deletion_failed", fmt.Sprintf("Failed to delete sandbox: %v", err))
@@ -235,7 +260,8 @@ func (h *Handler) PauseRuntime(w http.ResponseWriter, r *http.Request) {
 	logger.Debug("PauseRuntime: Scaling pod to zero for runtime %s (Pod: %s)", req.RuntimeID, runtimeInfo.PodName)
 
 	// For pause, we delete the pod but keep the state
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sOperationTimeout)
+	defer cancel()
 	if err := h.k8sClient.ScalePodToZero(ctx, runtimeInfo.PodName); err != nil {
 		logger.Info("Failed to pause runtime: %v", err)
 		respondError(w, http.StatusInternalServerError, "pause_failed", fmt.Sprintf("Failed to pause runtime: %v", err))
@@ -272,6 +298,14 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Already running: no-op (e.g. WebSocket recovery calls resume for running sandboxes)
+	if runtimeInfo.Status == types.StatusRunning {
+		logger.Debug("ResumeRuntime: Runtime %s already running, no-op", req.RuntimeID)
+		response := h.buildRuntimeResponse(runtimeInfo)
+		respondJSON(w, http.StatusOK, response)
+		return
+	}
+
 	if runtimeInfo.Status != types.StatusPaused {
 		logger.Debug("ResumeRuntime: Runtime %s is not paused (status: %s)", req.RuntimeID, runtimeInfo.Status)
 		respondError(w, http.StatusBadRequest, "invalid_state", "Runtime is not paused")
@@ -290,7 +324,8 @@ func (h *Handler) ResumeRuntime(w http.ResponseWriter, r *http.Request) {
 		SessionID:  runtimeInfo.SessionID,
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sOperationTimeout)
+	defer cancel()
 	if err := h.k8sClient.RecreatePod(ctx, startReq, runtimeInfo); err != nil {
 		logger.Info("Failed to resume runtime: %v", err)
 		respondError(w, http.StatusInternalServerError, "resume_failed", fmt.Sprintf("Failed to resume runtime: %v", err))
@@ -318,13 +353,14 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 	responses := make([]types.RuntimeResponse, 0, len(runtimes))
 	for _, runtime := range runtimes {
 		// Update pod status from Kubernetes
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
 		if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtime.PodName); err == nil {
 			runtime.PodStatus = statusInfo.Status
 			runtime.RestartCount = statusInfo.RestartCount
 			runtime.RestartReasons = statusInfo.RestartReasons
 			_ = h.stateMgr.UpdateRuntime(runtime)
 		}
+		cancel() // Cancel immediately after use in loop
 
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
@@ -361,9 +397,24 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 
 	runtimeInfo, err := h.stateMgr.GetRuntimeBySessionID(sessionID)
 	if err != nil {
-		logger.Debug("GetSession: Session not found: %s", sessionID)
-		respondError(w, http.StatusNotFound, "session_not_found", "Session not found")
-		return
+		// State was lost (e.g. runtime API restart); try to discover from Kubernetes
+		if h.k8sClient != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
+			defer cancel()
+			if discovered, discoverErr := h.k8sClient.DiscoverRuntimeBySessionID(ctx, sessionID); discoverErr == nil && discovered != nil {
+				logger.Info("GetSession: Recovered session %s from Kubernetes (state was lost)", sessionID)
+				h.stateMgr.AddRuntime(discovered)
+				runtimeInfo = discovered
+			} else {
+				logger.Debug("GetSession: Session not found: %s", sessionID)
+				respondError(w, http.StatusNotFound, "session_not_found", "Session not found")
+				return
+			}
+		} else {
+			logger.Debug("GetSession: Session not found: %s", sessionID)
+			respondError(w, http.StatusNotFound, "session_not_found", "Session not found")
+			return
+		}
 	}
 
 	// Update pod status from Kubernetes
@@ -375,33 +426,63 @@ func (h *Handler) GetSession(w http.ResponseWriter, r *http.Request) {
 
 // GetSessionsBatch handles GET /sessions/batch
 func (h *Handler) GetSessionsBatch(w http.ResponseWriter, r *http.Request) {
-	idsParam := r.URL.Query().Get("ids")
-	if idsParam == "" {
-		logger.Debug("GetSessionsBatch: Missing 'ids' parameter")
+	// Support both ?ids=1,2,3 and ?ids=1&ids=2&ids=3
+	var sessionIDs []string
+	for _, idStr := range r.URL.Query()["ids"] {
+		for _, id := range strings.Split(idStr, ",") {
+			if trimmed := strings.TrimSpace(id); trimmed != "" {
+				sessionIDs = append(sessionIDs, trimmed)
+			}
+		}
+	}
+	if len(sessionIDs) == 0 {
 		respondError(w, http.StatusBadRequest, "invalid_request", "ids parameter is required")
 		return
 	}
-
-	sessionIDs := strings.Split(idsParam, ",")
 	logger.Debug("GetSessionsBatch: Fetching %d sessions", len(sessionIDs))
-	runtimes := h.stateMgr.GetRuntimesBySessionIDs(sessionIDs)
-	logger.Debug("GetSessionsBatch: Found %d runtimes", len(runtimes))
 
-	responses := make([]types.RuntimeResponse, 0, len(runtimes))
-	for _, runtime := range runtimes {
+	// Build runtimes list, discovering from Kubernetes for any not in state
+	ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
+	defer cancel()
+	runtimesBySession := make(map[string]*state.RuntimeInfo)
+	for _, sessionID := range sessionIDs {
+		if sessionID == "" {
+			continue
+		}
+		if runtime, err := h.stateMgr.GetRuntimeBySessionID(sessionID); err == nil {
+			runtimesBySession[sessionID] = runtime
+		} else if h.k8sClient != nil {
+			if discovered, discoverErr := h.k8sClient.DiscoverRuntimeBySessionID(ctx, sessionID); discoverErr == nil && discovered != nil {
+				logger.Info("GetSessionsBatch: Recovered session %s from Kubernetes (state was lost)", sessionID)
+				h.stateMgr.AddRuntime(discovered)
+				runtimesBySession[sessionID] = discovered
+			}
+		}
+	}
+
+	responses := make([]types.RuntimeResponse, 0, len(runtimesBySession))
+	for _, sessionID := range sessionIDs {
+		runtime, ok := runtimesBySession[sessionID]
+		if !ok {
+			continue
+		}
 		// Update pod status from Kubernetes
-		ctx := context.Background()
-		if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtime.PodName); err == nil {
-			runtime.PodStatus = statusInfo.Status
-			runtime.RestartCount = statusInfo.RestartCount
-			runtime.RestartReasons = statusInfo.RestartReasons
-			_ = h.stateMgr.UpdateRuntime(runtime)
+		if h.k8sClient != nil {
+			if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtime.PodName); err == nil {
+				runtime.PodStatus = statusInfo.Status
+				runtime.RestartCount = statusInfo.RestartCount
+				runtime.RestartReasons = statusInfo.RestartReasons
+				_ = h.stateMgr.UpdateRuntime(runtime)
+			}
 		}
 
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
 
-	respondJSON(w, http.StatusOK, types.BatchSessionsResponse{Sessions: responses})
+	logger.Debug("GetSessionsBatch: Returning %d runtime responses", len(responses))
+	// Return a plain JSON array – the OpenHands app server iterates over the
+	// response directly as a list of runtime objects.
+	respondJSON(w, http.StatusOK, responses)
 }
 
 // GetRegistryPrefix handles GET /registry_prefix
@@ -451,7 +532,8 @@ func (h *Handler) buildRuntimeResponse(info *state.RuntimeInfo) types.RuntimeRes
 
 // updateRuntimeStatusFromK8s updates runtime info with latest pod status from Kubernetes
 func (h *Handler) updateRuntimeStatusFromK8s(runtimeInfo *state.RuntimeInfo) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), h.config.K8sQueryTimeout)
+	defer cancel()
 	if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtimeInfo.PodName); err == nil {
 		runtimeInfo.PodStatus = statusInfo.Status
 		runtimeInfo.RestartCount = statusInfo.RestartCount
@@ -488,7 +570,11 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 		if parts[1] == "vscode" {
 			backendPath = "/"
 		} else {
-			backendPath = "/" + strings.TrimPrefix(parts[1], "vscode")
+			// Remove "vscode" prefix and ensure we don't create double slashes
+			backendPath = strings.TrimPrefix(parts[1], "vscode")
+			if !strings.HasPrefix(backendPath, "/") {
+				backendPath = "/" + backendPath
+			}
 		}
 	} else {
 		backendPort = h.config.AgentServerPort
@@ -501,9 +587,24 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 
 	runtimeInfo, err := h.stateMgr.GetRuntimeByID(runtimeID)
 	if err != nil {
-		logger.Debug("ProxySandbox: Runtime not found: %s", runtimeID)
-		respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
-		return
+		// State was lost (e.g. runtime API restart); try to discover from Kubernetes
+		if h.k8sClient != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
+			defer cancel()
+			if discovered, discoverErr := h.k8sClient.DiscoverRuntimeByRuntimeID(ctx, runtimeID); discoverErr == nil && discovered != nil {
+				logger.Info("ProxySandbox: Recovered runtime %s from Kubernetes (state was lost)", runtimeID)
+				h.stateMgr.AddRuntime(discovered)
+				runtimeInfo = discovered
+			} else {
+				logger.Debug("ProxySandbox: Runtime not found: %s", runtimeID)
+				respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
+				return
+			}
+		} else {
+			logger.Debug("ProxySandbox: Runtime not found: %s", runtimeID)
+			respondError(w, http.StatusNotFound, "runtime_not_found", "Runtime not found")
+			return
+		}
 	}
 
 	backendURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
@@ -531,7 +632,82 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 			req.Header.Set("X-Session-API-Key", v)
 		}
 	}
+
+	// Rewrite Set-Cookie and Location headers to use the correct path for the proxy
+	proxy.ModifyResponse = h.createProxyResponseRewriter(runtimeID, backendPort)
+
 	proxy.ServeHTTP(w, r)
+}
+
+// createProxyResponseRewriter creates a response modifier that rewrites Set-Cookie and Location headers
+// to use the correct proxy path format (/sandbox/{runtime_id}/...).
+func (h *Handler) createProxyResponseRewriter(runtimeID string, backendPort int) func(*http.Response) error {
+	return func(resp *http.Response) error {
+		// Determine the proxy prefix based on backend port
+		var proxyPrefix string
+		if backendPort == h.config.VSCodePort {
+			proxyPrefix = fmt.Sprintf("/sandbox/%s/vscode", runtimeID)
+		} else {
+			proxyPrefix = fmt.Sprintf("/sandbox/%s", runtimeID)
+		}
+
+		// Rewrite Location header for redirects
+		if location := resp.Header.Get("Location"); location != "" {
+			// Parse the location URL
+			locURL, err := url.Parse(location)
+			if err == nil && locURL.Host == "" {
+				// Relative URL - prepend proxy prefix
+				if !strings.HasPrefix(locURL.Path, proxyPrefix) {
+					locURL.Path = proxyPrefix + locURL.Path
+					resp.Header.Set("Location", locURL.String())
+				}
+			}
+		}
+
+		// Rewrite Set-Cookie Path attribute
+		cookies := resp.Header.Values("Set-Cookie")
+		if len(cookies) > 0 {
+			resp.Header.Del("Set-Cookie")
+			for _, cookie := range cookies {
+				// Parse the cookie to rewrite the Path attribute
+				rewrittenCookie := rewriteCookiePath(cookie, proxyPrefix)
+				resp.Header.Add("Set-Cookie", rewrittenCookie)
+			}
+		}
+
+		return nil
+	}
+}
+
+// rewriteCookiePath rewrites the Path attribute in a Set-Cookie header value.
+// If no Path is present, adds Path=proxyPrefix. If Path=/, changes to Path=proxyPrefix.
+func rewriteCookiePath(cookieHeader, proxyPrefix string) string {
+	// Split cookie into attributes
+	parts := strings.Split(cookieHeader, ";")
+	hasPath := false
+	for i, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if strings.HasPrefix(strings.ToLower(trimmed), "path=") {
+			hasPath = true
+			// Extract current path value
+			pathValue := strings.TrimPrefix(trimmed, "path=")
+			pathValue = strings.TrimPrefix(pathValue, "Path=")
+			pathValue = strings.TrimPrefix(pathValue, "PATH=")
+			pathValue = strings.TrimSpace(pathValue)
+
+			// Rewrite root path to proxy prefix
+			if pathValue == "/" || pathValue == "" {
+				parts[i] = " Path=" + proxyPrefix
+			}
+		}
+	}
+
+	// If no Path attribute found, add it
+	if !hasPath {
+		parts = append(parts, " Path="+proxyPrefix)
+	}
+
+	return strings.Join(parts, ";")
 }
 
 // Helper functions

@@ -116,12 +116,26 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		"session-id": runtimeInfo.SessionID,
 	}
 
-	// Build environment variables
+	// Build environment variables.
+	// Set both OH_SESSION_API_KEYS_0 (app_server convention) and SESSION_API_KEY
+	// (agent server / action_execution_server and webhook client may read either).
 	envVars := []corev1.EnvVar{
 		{Name: "OH_SESSION_API_KEYS_0", Value: runtimeInfo.SessionAPIKey},
+		{Name: "SESSION_API_KEY", Value: runtimeInfo.SessionAPIKey},
+		{Name: "OH_RUNTIME_ID", Value: runtimeInfo.RuntimeID},
 		{Name: "OH_VSCODE_PORT", Value: fmt.Sprintf("%d", c.config.VSCodePort)},
 		{Name: "WORKER_1", Value: fmt.Sprintf("%d", c.config.Worker1Port)},
 		{Name: "WORKER_2", Value: fmt.Sprintf("%d", c.config.Worker2Port)},
+	}
+	// If custom CA certificate is mounted, point Python/httpx at the system bundle.
+	// The entrypoint runs update-ca-certificates, which merges the mounted cert
+	// into /etc/ssl/certs/ca-certificates.crt. Use that merged bundle so both
+	// system CAs (e.g. for Azure LLM) and the corporate CA are trusted.
+	if c.config.CACertSecretName != "" {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "SSL_CERT_FILE",
+			Value: "/etc/ssl/certs/ca-certificates.crt",
+		})
 	}
 
 	// Add webhook URL if app server URL is configured
@@ -149,15 +163,16 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		})
 	}
 
-	// Parse command: accept either exec form ([]string) or single string (run via bash -c)
+	// Use image ENTRYPOINT (e.g. /openhands/entrypoint.sh for update-ca-certificates)
+	// and pass request command as Args so the entrypoint receives them as "$@".
+	// If we set Command we would replace the image ENTRYPOINT and the entrypoint would never run.
 	var command []string
 	var args []string
 	if len(req.Command) > 1 {
-		// Exec form: use slice directly as container Command
-		command = []string(req.Command)
-		args = nil
+		command = nil
+		args = []string(req.Command)
 	} else if len(req.Command) == 1 && req.Command[0] != "" {
-		// Single string: preserve legacy behavior (bash -c)
+		// Single string: run via bash -c (no image entrypoint)
 		command = []string{"/bin/bash", "-c"}
 		args = []string{req.Command[0]}
 	}
@@ -188,7 +203,7 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 					Args:            args,
 					WorkingDir:      req.WorkingDir,
 					Env:             envVars,
-					ImagePullPolicy: corev1.PullIfNotPresent,
+					ImagePullPolicy: corev1.PullAlways,
 					Ports: []corev1.ContainerPort{
 						//nolint:gosec // Port values are validated to be in valid range (1-65535)
 						{ContainerPort: portToInt32(c.config.AgentServerPort), Name: "agent", Protocol: corev1.ProtocolTCP},
@@ -239,6 +254,32 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 		for _, name := range c.config.ImagePullSecrets {
 			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: name})
 		}
+	}
+
+	// Mount optional CA certificate for sandbox pods (e.g. corporate/proxy CAs).
+	// The runtime image runs update-ca-certificates at startup, which merges certs
+	// from /usr/local/share/ca-certificates/*.crt into the system trust store.
+	if c.config.CACertSecretName != "" {
+		secretKey := c.config.CACertSecretKey
+		if secretKey == "" {
+			secretKey = "ca-certificates.crt"
+		}
+		const caCertMountPath = "/usr/local/share/ca-certificates/additional-ca.crt"
+		vol := corev1.Volume{
+			Name: "ca-certificates",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: c.config.CACertSecretName,
+				},
+			},
+		}
+		pod.Spec.Volumes = append(pod.Spec.Volumes, vol)
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      c.config.CACertSecretName,
+			MountPath: caCertMountPath,
+			SubPath:   secretKey,
+			ReadOnly:  true,
+		})
 	}
 
 	_, err := c.clientset.CoreV1().Pods(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
@@ -569,6 +610,100 @@ func (c *Client) ScalePodToZero(ctx context.Context, podName string) error {
 func (c *Client) RecreatePod(ctx context.Context, req *types.StartRequest, runtimeInfo *state.RuntimeInfo) error {
 	logger.Debug("RecreatePod: Recreating pod %s", runtimeInfo.PodName)
 	return c.createPod(ctx, req, runtimeInfo)
+}
+
+// buildRuntimeInfoFromPod reconstructs RuntimeInfo from a sandbox pod. Used by discovery functions.
+func (c *Client) buildRuntimeInfoFromPod(ctx context.Context, pod *corev1.Pod, runtimeID, sessionID string) *state.RuntimeInfo {
+	sessionAPIKey := ""
+	for _, env := range pod.Spec.Containers[0].Env {
+		if env.Name == "OH_SESSION_API_KEYS_0" {
+			sessionAPIKey = env.Value
+			break
+		}
+	}
+	sessionIDForHost := strings.ToLower(sessionID)
+	baseURL := fmt.Sprintf("https://%s.%s", sessionIDForHost, c.config.BaseDomain)
+	workHosts := map[string]int{
+		fmt.Sprintf("https://work-1-%s.%s", sessionIDForHost, c.config.BaseDomain): c.config.Worker1Port,
+		fmt.Sprintf("https://work-2-%s.%s", sessionIDForHost, c.config.BaseDomain): c.config.Worker2Port,
+	}
+	statusInfo, err := c.GetPodStatus(ctx, pod.Name)
+	podStatus := types.PodStatusUnknown
+	restartCount := 0
+	restartReasons := []string{}
+	if err == nil {
+		podStatus = statusInfo.Status
+		restartCount = statusInfo.RestartCount
+		restartReasons = statusInfo.RestartReasons
+	}
+	return &state.RuntimeInfo{
+		RuntimeID:      runtimeID,
+		SessionID:      sessionID,
+		URL:            baseURL,
+		SessionAPIKey:  sessionAPIKey,
+		Status:         types.StatusRunning,
+		PodStatus:      podStatus,
+		WorkHosts:      workHosts,
+		PodName:        pod.Name,
+		ServiceName:    pod.Name,
+		IngressName:    pod.Name,
+		RestartCount:   restartCount,
+		RestartReasons: restartReasons,
+	}
+}
+
+// DiscoverRuntimeBySessionID finds a running sandbox pod by session-id label and
+// reconstructs RuntimeInfo. Used when in-memory state was lost (e.g. runtime API restart).
+// Returns nil if no matching pod exists.
+//
+//nolint:dupl // Mirrors DiscoverRuntimeByRuntimeID; differs only in selector and label extraction
+func (c *Client) DiscoverRuntimeBySessionID(ctx context.Context, sessionID string) (*state.RuntimeInfo, error) {
+	selector := fmt.Sprintf("app=openhands-runtime,session-id=%s", sessionID)
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+	if len(list.Items) == 0 {
+		return nil, nil
+	}
+	pod := &list.Items[0]
+	runtimeID, ok := pod.Labels["runtime-id"]
+	if !ok || runtimeID == "" {
+		return nil, nil
+	}
+	if len(pod.Spec.Containers) == 0 {
+		return nil, nil
+	}
+	return c.buildRuntimeInfoFromPod(ctx, pod, runtimeID, sessionID), nil
+}
+
+// DiscoverRuntimeByRuntimeID finds a sandbox pod by runtime-id label and
+// reconstructs RuntimeInfo. Used when in-memory state was lost (e.g. runtime API restart).
+// Returns nil if no matching pod exists.
+//
+//nolint:dupl // Mirrors DiscoverRuntimeBySessionID; differs only in selector and label extraction
+func (c *Client) DiscoverRuntimeByRuntimeID(ctx context.Context, runtimeID string) (*state.RuntimeInfo, error) {
+	selector := fmt.Sprintf("app=openhands-runtime,runtime-id=%s", runtimeID)
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+	if len(list.Items) == 0 {
+		return nil, nil
+	}
+	pod := &list.Items[0]
+	sessionID, ok := pod.Labels["session-id"]
+	if !ok || sessionID == "" {
+		return nil, nil
+	}
+	if len(pod.Spec.Containers) == 0 {
+		return nil, nil
+	}
+	return c.buildRuntimeInfoFromPod(ctx, pod, runtimeID, sessionID), nil
 }
 
 // WaitForPodReady waits for a pod to become ready
