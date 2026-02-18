@@ -17,6 +17,7 @@ A Kubernetes-compatible runtime service for OpenHands that provisions sandbox po
 - ✅ Support for custom runtime classes (sysbox-runc, gvisor)
 - ✅ Structured logging and error handling
 - ✅ Health checks and readiness probes
+- ✅ Automatic cleanup of orphaned resources (failed and idle pods)
 
 ## Architecture
 
@@ -236,6 +237,10 @@ Environment variables:
 | `PROXY_BASE_URL` | (optional) | When set, sandbox URLs are served via this API (e.g. `https://runtime-api.your-domain.com`) so only one DNS record is needed; avoids DNS propagation delay for new sandboxes |
 | `IDLE_TIMEOUT_HOURS` | `12` | Hours of inactivity before a sandbox is automatically cleaned up |
 | `REAPER_CHECK_INTERVAL` | `15m` | How often to check for idle sandboxes (e.g. `15m`, `30m`, `1h`) |
+| `CLEANUP_ENABLED` | `true` | Enable automatic cleanup of orphaned resources |
+| `CLEANUP_INTERVAL_MINUTES` | `5` | Interval between cleanup runs (in minutes) |
+| `CLEANUP_FAILED_THRESHOLD_MINUTES` | `60` | Time before cleaning up failed pods (in minutes) |
+| `CLEANUP_IDLE_THRESHOLD_MINUTES` | `1440` | Time before cleaning up idle pods (in minutes, default 24 hours) |
 
 ### Idle Sandbox Cleanup
 
@@ -252,6 +257,26 @@ Example configuration for shorter timeout (useful for development):
 IDLE_TIMEOUT_HOURS=2      # Clean up after 2 hours of inactivity
 REAPER_CHECK_INTERVAL=10m # Check every 10 minutes
 ```
+
+### Automatic Resource Cleanup
+
+The runtime API also cleans up orphaned resources to prevent resource leaks and maintain cluster health. The cleanup service runs periodically and removes:
+
+1. **Failed Pods**: Pods that have been in a failed state (Failed or CrashLoopBackOff) for longer than `CLEANUP_FAILED_THRESHOLD_MINUTES` (default: 60 minutes)
+2. **Idle Pods**: Pods that have been running for longer than `CLEANUP_IDLE_THRESHOLD_MINUTES` (default: 24 hours)
+
+When a runtime is cleaned up, all associated resources (Pod, Service, and Ingress) are deleted from Kubernetes, and the runtime is removed from the internal state.
+
+**Configuration:**
+- Set `CLEANUP_ENABLED=false` to disable automatic cleanup
+- Adjust `CLEANUP_INTERVAL_MINUTES` to change how often cleanup runs (default: 5 minutes)
+- Adjust `CLEANUP_FAILED_THRESHOLD_MINUTES` to change when failed pods are cleaned up (default: 60 minutes)
+- Adjust `CLEANUP_IDLE_THRESHOLD_MINUTES` to change when idle pods are cleaned up (default: 1440 minutes / 24 hours)
+
+**Monitoring:**
+- Cleanup operations are logged at INFO level
+- Each cleanup run reports the number of runtimes cleaned (failed vs idle)
+- Errors during cleanup are logged but don't stop the service
 
 ### Debug Logging
 

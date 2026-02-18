@@ -159,7 +159,8 @@ func (h *Handler) StartRuntime(w http.ResponseWriter, r *http.Request) {
 		PodName:          fmt.Sprintf("runtime-%s", runtimeID),
 		ServiceName:      fmt.Sprintf("runtime-%s", runtimeID),
 		IngressName:      fmt.Sprintf("runtime-%s", runtimeID),
-		LastActivityTime: time.Now(), // Initialize activity timestamp
+		CreatedAt:        time.Now(),
+		LastActivityTime: time.Now(),
 		WorkHosts: map[string]int{
 			fmt.Sprintf("https://work-1-%s.%s", sessionIDForHost, h.config.BaseDomain): h.config.Worker1Port,
 			fmt.Sprintf("https://work-2-%s.%s", sessionIDForHost, h.config.BaseDomain): h.config.Worker2Port,

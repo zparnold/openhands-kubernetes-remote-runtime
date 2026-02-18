@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/api"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/cleanup"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/k8s"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
@@ -41,6 +42,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Kubernetes client: %v", err)
 	}
+
+	// Initialize cleanup service
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cleanupSvc := cleanup.NewService(k8sClient, stateMgr, cfg)
+	cleanupSvc.Start(ctx)
+	defer cleanupSvc.Stop()
 
 	// Initialize API handler
 	handler := api.NewHandler(k8sClient, stateMgr, cfg)
@@ -126,8 +135,11 @@ func main() {
 	reaperInstance.Stop()
 
 	// Create a context with timeout for graceful shutdown
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer shutdownCancel()
+
+	// Stop cleanup service
+	cleanupSvc.Stop()
 
 	// Attempt graceful shutdown
 	if err := server.Shutdown(shutdownCtx); err != nil {

@@ -22,6 +22,7 @@ type RuntimeInfo struct {
 	IngressName      string
 	RestartCount     int
 	RestartReasons   []string
+	CreatedAt        time.Time // Track when the runtime was created for cleanup purposes
 	LastActivityTime time.Time // Track last activity for idle timeout
 }
 
