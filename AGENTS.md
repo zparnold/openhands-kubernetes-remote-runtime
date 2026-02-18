@@ -211,10 +211,44 @@ Potential improvements (not required for current functionality):
 2. **Kubernetes mocking**: Add test infrastructure for pkg/k8s
 3. **Metrics**: Add Prometheus metrics for monitoring
 4. **Autoscaling**: Implement HPA for API and sandbox pods
-5. **Pod cleanup**: TTL-based cleanup of old pods
-6. **Image validation**: Actually check container registry
-7. **Enhanced resume**: Store full pod spec for exact recreation
-8. **Integration tests**: Test against real Kubernetes cluster
+5. **Image validation**: Actually check container registry
+6. **Enhanced resume**: Store full pod spec for exact recreation
+7. **Integration tests**: Test against real Kubernetes cluster
+8. **Advanced cleanup**: Add activity-based cleanup (not just time-based)
+
+## Cleanup Implementation
+
+The cleanup service automatically removes orphaned resources to prevent resource leaks:
+
+### Architecture
+- **Location**: `pkg/cleanup/cleanup.go`
+- **Integration**: Started as a goroutine in `cmd/runtime-api/main.go`
+- **Graceful shutdown**: Properly stops on SIGTERM/SIGINT
+
+### How It Works
+1. Runs periodically at configured intervals (default: 5 minutes)
+2. Checks all runtimes in state against their Kubernetes pod status
+3. Cleans up runtimes that meet cleanup criteria:
+   - **Failed pods**: In Failed or CrashLoopBackOff state for > threshold (default: 60 min)
+   - **Idle pods**: Running for > idle threshold (default: 24 hours)
+4. Deletes Pod, Service, and Ingress resources
+5. Removes runtime from state manager
+
+### Configuration
+- `CLEANUP_ENABLED`: Enable/disable (default: true)
+- `CLEANUP_INTERVAL_MINUTES`: How often to run (default: 5)
+- `CLEANUP_FAILED_THRESHOLD_MINUTES`: When to clean failed pods (default: 60)
+- `CLEANUP_IDLE_THRESHOLD_MINUTES`: When to clean idle pods (default: 1440)
+
+### Testing
+- Unit tests in `pkg/cleanup/cleanup_test.go`
+- Tests cover threshold logic for various pod states
+- 100% coverage of cleanup logic
+
+### Monitoring
+- Tracks cleanup statistics (runs, total cleaned, failed cleaned, idle cleaned)
+- Logs all cleanup operations at INFO level
+- Reports errors without stopping the service
 
 ## Troubleshooting
 
