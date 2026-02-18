@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -303,6 +304,55 @@ func TestLoadConfig_CACert(t *testing.T) {
 		}
 		if cfg.CACertSecretKey != "my-ca.crt" {
 			t.Errorf("Expected CACertSecretKey 'my-ca.crt', got %q", cfg.CACertSecretKey)
+		}
+	})
+}
+
+func TestLoadConfig_IdleTimeout(t *testing.T) {
+	origIdleHours := os.Getenv("IDLE_TIMEOUT_HOURS")
+	origReaperInterval := os.Getenv("REAPER_CHECK_INTERVAL")
+	defer func() {
+		if origIdleHours == "" {
+			os.Unsetenv("IDLE_TIMEOUT_HOURS")
+		} else {
+			os.Setenv("IDLE_TIMEOUT_HOURS", origIdleHours)
+		}
+		if origReaperInterval == "" {
+			os.Unsetenv("REAPER_CHECK_INTERVAL")
+		} else {
+			os.Setenv("REAPER_CHECK_INTERVAL", origReaperInterval)
+		}
+	}()
+
+	t.Run("Default values", func(t *testing.T) {
+		os.Unsetenv("IDLE_TIMEOUT_HOURS")
+		os.Unsetenv("REAPER_CHECK_INTERVAL")
+		cfg := LoadConfig()
+		if cfg.IdleTimeoutHours != 12 {
+			t.Errorf("Expected default IdleTimeoutHours 12, got %d", cfg.IdleTimeoutHours)
+		}
+		if cfg.ReaperCheckInterval != 15*time.Minute {
+			t.Errorf("Expected default ReaperCheckInterval 15m, got %v", cfg.ReaperCheckInterval)
+		}
+	})
+
+	t.Run("Custom values from environment", func(t *testing.T) {
+		os.Setenv("IDLE_TIMEOUT_HOURS", "24")
+		os.Setenv("REAPER_CHECK_INTERVAL", "30m")
+		cfg := LoadConfig()
+		if cfg.IdleTimeoutHours != 24 {
+			t.Errorf("Expected IdleTimeoutHours 24, got %d", cfg.IdleTimeoutHours)
+		}
+		if cfg.ReaperCheckInterval != 30*time.Minute {
+			t.Errorf("Expected ReaperCheckInterval 30m, got %v", cfg.ReaperCheckInterval)
+		}
+	})
+
+	t.Run("Invalid reaper interval falls back to default", func(t *testing.T) {
+		os.Setenv("REAPER_CHECK_INTERVAL", "invalid")
+		cfg := LoadConfig()
+		if cfg.ReaperCheckInterval != 15*time.Minute {
+			t.Errorf("Expected default ReaperCheckInterval 15m on invalid input, got %v", cfg.ReaperCheckInterval)
 		}
 	})
 }

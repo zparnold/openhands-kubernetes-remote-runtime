@@ -2,6 +2,7 @@ package state
 
 import (
 	"testing"
+	"time"
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
 )
@@ -246,4 +247,43 @@ func TestConcurrentAccess(t *testing.T) {
 	if len(runtimes) != 10 {
 		t.Errorf("Expected 10 runtimes after concurrent writes, got %d", len(runtimes))
 	}
+}
+
+func TestUpdateLastActivity(t *testing.T) {
+	sm := NewStateManager()
+
+	info := &RuntimeInfo{
+		RuntimeID: "runtime-123",
+		SessionID: "session-456",
+		Status:    types.StatusRunning,
+	}
+	sm.AddRuntime(info)
+
+	t.Run("Update existing runtime activity", func(t *testing.T) {
+		// Get initial activity time
+		retrieved, _ := sm.GetRuntimeByID("runtime-123")
+		initialTime := retrieved.LastActivityTime
+
+		// Wait a bit
+		time.Sleep(10 * time.Millisecond)
+
+		// Update activity
+		err := sm.UpdateLastActivity("runtime-123")
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		// Verify activity time was updated
+		retrieved, _ = sm.GetRuntimeByID("runtime-123")
+		if !retrieved.LastActivityTime.After(initialTime) {
+			t.Error("LastActivityTime should be updated to a later time")
+		}
+	})
+
+	t.Run("Update non-existent runtime activity", func(t *testing.T) {
+		err := sm.UpdateLastActivity("non-existent")
+		if err == nil {
+			t.Error("Expected error for non-existent runtime")
+		}
+	})
 }
