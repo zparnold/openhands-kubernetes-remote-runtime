@@ -5,7 +5,7 @@ BINARY_NAME=runtime-api
 DOCKER_IMAGE?=ghcr.io/zparnold/openhands-kubernetes-remote-runtime
 VERSION?=latest
 NAMESPACE?=openhands
-COVERAGE_THRESHOLD?=25
+COVERAGE_THRESHOLD?=70
 
 # Build the Go binary
 build:

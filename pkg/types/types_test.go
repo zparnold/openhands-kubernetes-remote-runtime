@@ -103,6 +103,13 @@ func TestFlexibleCommand_UnmarshalJSON(t *testing.T) {
 			t.Errorf("expected nil, got %v", c)
 		}
 	})
+	t.Run("unmarshal from invalid data", func(t *testing.T) {
+		var c FlexibleCommand
+		err := json.Unmarshal([]byte(`123`), &c)
+		if err == nil {
+			t.Error("expected error for invalid command data, got nil")
+		}
+	})
 }
 
 func TestRuntimeResponse(t *testing.T) {
@@ -129,6 +136,28 @@ func TestRuntimeResponse(t *testing.T) {
 	}
 	if len(resp.WorkHosts) != 2 {
 		t.Errorf("Expected 2 work hosts, got %d", len(resp.WorkHosts))
+	}
+}
+
+func TestFlexibleCommand_String(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmd      FlexibleCommand
+		expected string
+	}{
+		{"empty command", FlexibleCommand{}, ""},
+		{"single command", FlexibleCommand{"echo"}, "echo"},
+		{"multiple args", FlexibleCommand{"echo", "hello", "world"}, "echo hello world"},
+		{"exec form", FlexibleCommand{"/usr/local/bin/server", "--port", "60000"}, "/usr/local/bin/server --port 60000"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.cmd.String()
+			if result != tt.expected {
+				t.Errorf("String() = %q, want %q", result, tt.expected)
+			}
+		})
 	}
 }
 
