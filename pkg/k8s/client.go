@@ -24,7 +24,7 @@ import (
 
 // Client wraps Kubernetes client operations
 type Client struct {
-	clientset *kubernetes.Clientset
+	clientset kubernetes.Interface
 	config    *config.Config
 	namespace string
 }
@@ -61,6 +61,16 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		config:    cfg,
 		namespace: cfg.Namespace,
 	}, nil
+}
+
+// NewClientFromInterface creates a Client using an existing kubernetes.Interface.
+// Intended for use in tests where a fake clientset is injected.
+func NewClientFromInterface(clientset kubernetes.Interface, cfg *config.Config) *Client {
+	return &Client{
+		clientset: clientset,
+		config:    cfg,
+		namespace: cfg.Namespace,
+	}
 }
 
 // portToInt32 converts a port number to int32 for Kubernetes APIs.

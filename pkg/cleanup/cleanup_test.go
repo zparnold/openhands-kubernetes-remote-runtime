@@ -1,8 +1,13 @@
 package cleanup
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/k8s"
@@ -164,4 +169,186 @@ func TestNewService(t *testing.T) {
 	if s.stopChan == nil {
 		t.Error("NewService() stopChan not initialized")
 	}
+}
+
+func TestStart_Disabled(t *testing.T) {
+	cfg := &config.Config{
+		CleanupEnabled: false,
+	}
+	s := NewService(nil, nil, cfg)
+	// Should not panic or block when disabled
+	ctx := context.Background()
+	s.Start(ctx)
+	// No goroutine started, wg is at zero - Stop should return immediately
+	s.Stop()
+}
+
+func TestStop_Disabled(t *testing.T) {
+	cfg := &config.Config{
+		CleanupEnabled: false,
+	}
+	s := NewService(nil, nil, cfg)
+	// Stop on disabled service should not panic
+	s.Stop()
+}
+
+func TestRunCleanup_EmptyState(t *testing.T) {
+	cfg := &config.Config{
+		CleanupFailedThresholdMin: 60,
+		CleanupIdleThresholdMin:   1440,
+	}
+	stateMgr := state.NewStateManager()
+	fakeClientset := fake.NewSimpleClientset()
+	k8sClient := k8s.NewClientFromInterface(fakeClientset, &config.Config{Namespace: "test-ns"})
+
+	s := NewService(k8sClient, stateMgr, cfg)
+	ctx := context.Background()
+	s.runCleanup(ctx)
+
+	stats := s.GetStats()
+	if stats.TotalRunCount != 1 {
+		t.Errorf("expected TotalRunCount=1, got %d", stats.TotalRunCount)
+	}
+	if stats.TotalCleaned != 0 {
+		t.Errorf("expected TotalCleaned=0, got %d", stats.TotalCleaned)
+	}
+}
+
+func TestRunCleanup_SkipsStoppedRuntime(t *testing.T) {
+	cfg := &config.Config{
+		CleanupFailedThresholdMin: 60,
+		CleanupIdleThresholdMin:   1440,
+	}
+	stateMgr := state.NewStateManager()
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID: "stopped-rt",
+		SessionID: "stopped-sess",
+		Status:    types.StatusStopped,
+		PodName:   "stopped-pod",
+		CreatedAt: time.Now().Add(-48 * time.Hour),
+	})
+
+	fakeClientset := fake.NewSimpleClientset()
+	k8sClient := k8s.NewClientFromInterface(fakeClientset, &config.Config{Namespace: "test-ns"})
+
+	s := NewService(k8sClient, stateMgr, cfg)
+	ctx := context.Background()
+	s.runCleanup(ctx)
+
+	stats := s.GetStats()
+	if stats.TotalCleaned != 0 {
+		t.Errorf("expected stopped runtime to not be cleaned, got TotalCleaned=%d", stats.TotalCleaned)
+	}
+}
+
+func TestRunCleanup_CleansFailedRuntime(t *testing.T) {
+	cfg := &config.Config{
+		CleanupFailedThresholdMin: 60,
+		CleanupIdleThresholdMin:   1440,
+	}
+	stateMgr := state.NewStateManager()
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID: "failed-rt",
+		SessionID: "failed-sess",
+		Status:    types.StatusRunning,
+		PodName:   "failed-pod",
+		// Created 2 hours ago - past the 60-minute failed threshold
+		CreatedAt: time.Now().Add(-2 * time.Hour),
+	})
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "failed-pod", Namespace: "test-ns"},
+		Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+	}
+	fakeClientset := fake.NewSimpleClientset(pod)
+	k8sClient := k8s.NewClientFromInterface(fakeClientset, &config.Config{Namespace: "test-ns"})
+
+	s := NewService(k8sClient, stateMgr, cfg)
+	ctx := context.Background()
+	s.runCleanup(ctx)
+
+	stats := s.GetStats()
+	if stats.TotalCleaned != 1 {
+		t.Errorf("expected TotalCleaned=1, got %d", stats.TotalCleaned)
+	}
+	if stats.FailedCleaned != 1 {
+		t.Errorf("expected FailedCleaned=1, got %d", stats.FailedCleaned)
+	}
+}
+
+func TestRunCleanup_CleansIdleRuntime(t *testing.T) {
+	cfg := &config.Config{
+		CleanupFailedThresholdMin: 60,
+		CleanupIdleThresholdMin:   1440, // 24 hours
+	}
+	stateMgr := state.NewStateManager()
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID:        "idle-rt",
+		SessionID:        "idle-sess",
+		Status:           types.StatusRunning,
+		PodName:          "idle-pod",
+		CreatedAt:        time.Now().Add(-25 * time.Hour),
+		LastActivityTime: time.Now().Add(-25 * time.Hour),
+	})
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "idle-pod", Namespace: "test-ns"},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	fakeClientset := fake.NewSimpleClientset(pod)
+	k8sClient := k8s.NewClientFromInterface(fakeClientset, &config.Config{Namespace: "test-ns"})
+
+	s := NewService(k8sClient, stateMgr, cfg)
+	ctx := context.Background()
+	s.runCleanup(ctx)
+
+	stats := s.GetStats()
+	if stats.TotalCleaned != 1 {
+		t.Errorf("expected TotalCleaned=1, got %d", stats.TotalCleaned)
+	}
+	if stats.IdleCleaned != 1 {
+		t.Errorf("expected IdleCleaned=1, got %d", stats.IdleCleaned)
+	}
+}
+
+func TestShouldCleanupRuntime_WithLastActivityTime(t *testing.T) {
+	cfg := &config.Config{
+		CleanupFailedThresholdMin: 60,
+		CleanupIdleThresholdMin:   1440,
+	}
+	s := &Service{config: cfg}
+
+	// Runtime with LastActivityTime set (not zero) - should use it instead of CreatedAt
+	runtime := &state.RuntimeInfo{
+		RuntimeID:        "active-rt",
+		CreatedAt:        time.Now().Add(-30 * time.Hour), // Old creation, but...
+		LastActivityTime: time.Now().Add(-1 * time.Hour),  // ...recently active
+	}
+	podStatus := &k8s.PodStatusInfo{Status: types.PodStatusReady}
+
+	shouldCleanup, _ := s.shouldCleanupRuntime(runtime, podStatus)
+	if shouldCleanup {
+		t.Error("expected recently active runtime to NOT be cleaned up")
+	}
+}
+
+func TestStartStop_Enabled(t *testing.T) {
+	cfg := &config.Config{
+		CleanupEnabled:            true,
+		CleanupIntervalMinutes:    60, // Long interval so it doesn't fire during test
+		CleanupFailedThresholdMin: 60,
+		CleanupIdleThresholdMin:   1440,
+	}
+	stateMgr := state.NewStateManager()
+	fakeClientset := fake.NewSimpleClientset()
+	k8sClient := k8s.NewClientFromInterface(fakeClientset, &config.Config{Namespace: "test-ns"})
+
+	s := NewService(k8sClient, stateMgr, cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.Start(ctx)
+	// Cancel context to trigger graceful shutdown via ctx.Done()
+	cancel()
+	// Stop should complete quickly
+	s.Stop()
 }
