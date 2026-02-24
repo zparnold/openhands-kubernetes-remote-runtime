@@ -18,6 +18,8 @@ import (
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/reaper"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
+	muxtrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 func main() {
@@ -28,6 +30,13 @@ func main() {
 	logger.Init(cfg.LogLevel)
 	logger.Info("Initializing OpenHands Kubernetes Runtime API")
 	logger.Debug("Log level set to: %s", cfg.LogLevel)
+
+	// Conditionally start Datadog APM tracer (no-op when DD_AGENT_HOST is unset)
+	if os.Getenv("DD_AGENT_HOST") != "" {
+		tracer.Start(tracer.WithServiceName("openhands-runtime-api"))
+		defer tracer.Stop()
+		logger.Info("Datadog tracer started: agent=%s", os.Getenv("DD_AGENT_HOST"))
+	}
 
 	// Validate required config
 	if cfg.APIKey == "" {
@@ -58,8 +67,15 @@ func main() {
 	reaperInstance := reaper.NewReaper(stateMgr, k8sClient, cfg)
 	reaperInstance.Start()
 
-	// Setup router
+	// Setup router — use muxtrace-instrumented router when Datadog is active.
+	// muxtrace.Router embeds *mux.Router and overrides ServeHTTP to trace requests.
+	// We keep a separate http.Handler for the server so tracing wraps all requests.
 	router := mux.NewRouter()
+	var serverHandler http.Handler = router
+	if os.Getenv("DD_AGENT_HOST") != "" {
+		tracedRouter := muxtrace.WrapRouter(router, muxtrace.WithServiceName("openhands-runtime-api"))
+		serverHandler = tracedRouter
+	}
 	// Disable path cleaning so percent-encoded characters (e.g. %2F in file upload
 	// paths) are preserved and not 301-redirected to their decoded equivalents.
 	// Without this, POST /sandbox/.../api/file/upload/%2Fworkspace%2Ffile.txt gets
@@ -114,7 +130,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         addr,
-		Handler:      router,
+		Handler:      serverHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

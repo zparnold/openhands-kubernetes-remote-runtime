@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -21,6 +23,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// ddTracingEnabled caches whether Datadog tracing is active (DD_AGENT_HOST is set).
+var ddTracingEnabled = os.Getenv("DD_AGENT_HOST") != ""
 
 // Client wraps Kubernetes client operations
 type Client struct {
@@ -77,6 +82,15 @@ func portToInt32(port int) int32 {
 
 // CreateSandbox creates a complete sandbox environment (pod, service, ingress)
 func (c *Client) CreateSandbox(ctx context.Context, req *types.StartRequest, runtimeInfo *state.RuntimeInfo) error {
+	if ddTracingEnabled {
+		span, spanCtx := tracer.StartSpanFromContext(ctx, "k8s.CreateSandbox",
+			tracer.ResourceName("CreateSandbox"),
+			tracer.Tag("runtime_id", runtimeInfo.RuntimeID),
+			tracer.Tag("session_id", runtimeInfo.SessionID),
+		)
+		defer span.Finish()
+		ctx = spanCtx
+	}
 	logger.Debug("CreateSandbox: Creating sandbox for runtime %s", runtimeInfo.RuntimeID)
 
 	// Create Pod
@@ -571,6 +585,14 @@ func (c *Client) DeleteIngress(ctx context.Context, ingressName string) error {
 
 // DeleteSandbox deletes all resources for a sandbox
 func (c *Client) DeleteSandbox(ctx context.Context, runtimeInfo *state.RuntimeInfo) error {
+	if ddTracingEnabled {
+		span, spanCtx := tracer.StartSpanFromContext(ctx, "k8s.DeleteSandbox",
+			tracer.ResourceName("DeleteSandbox"),
+			tracer.Tag("runtime_id", runtimeInfo.RuntimeID),
+		)
+		defer span.Finish()
+		ctx = spanCtx
+	}
 	logger.Debug("DeleteSandbox: Deleting sandbox for runtime %s", runtimeInfo.RuntimeID)
 	var deleteErrors []error
 
@@ -603,6 +625,14 @@ func (c *Client) DeleteSandbox(ctx context.Context, runtimeInfo *state.RuntimeIn
 
 // ScalePodToZero scales the pod to zero replicas (pause simulation)
 func (c *Client) ScalePodToZero(ctx context.Context, podName string) error {
+	if ddTracingEnabled {
+		span, spanCtx := tracer.StartSpanFromContext(ctx, "k8s.ScalePodToZero",
+			tracer.ResourceName("ScalePodToZero"),
+			tracer.Tag("pod_name", podName),
+		)
+		defer span.Finish()
+		ctx = spanCtx
+	}
 	logger.Debug("ScalePodToZero: Scaling pod %s to zero", podName)
 	// For now, we'll just delete the pod for pause
 	// A more sophisticated approach would use deployments/statefulsets
@@ -611,6 +641,15 @@ func (c *Client) ScalePodToZero(ctx context.Context, podName string) error {
 
 // RecreatePod recreates a pod (resume simulation)
 func (c *Client) RecreatePod(ctx context.Context, req *types.StartRequest, runtimeInfo *state.RuntimeInfo) error {
+	if ddTracingEnabled {
+		span, spanCtx := tracer.StartSpanFromContext(ctx, "k8s.RecreatePod",
+			tracer.ResourceName("RecreatePod"),
+			tracer.Tag("runtime_id", runtimeInfo.RuntimeID),
+			tracer.Tag("pod_name", runtimeInfo.PodName),
+		)
+		defer span.Finish()
+		ctx = spanCtx
+	}
 	logger.Debug("RecreatePod: Recreating pod %s", runtimeInfo.PodName)
 	return c.createPod(ctx, req, runtimeInfo)
 }
