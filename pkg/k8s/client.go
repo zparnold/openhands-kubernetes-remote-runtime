@@ -241,6 +241,19 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 							corev1.ResourceMemory: resource.MustParse(memoryLimit),
 						},
 					},
+					// StartupProbe gates readiness/liveness probes until the container
+					// has fully started (image pull + process init). Allows up to 5 min.
+					StartupProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Path: "/alive",
+								Port: intstr.FromInt(c.config.AgentServerPort),
+							},
+						},
+						PeriodSeconds:    5,
+						TimeoutSeconds:   5,
+						FailureThreshold: 60, // 60 * 5s = 300s max startup time
+					},
 					ReadinessProbe: &corev1.Probe{
 						ProbeHandler: corev1.ProbeHandler{
 							HTTPGet: &corev1.HTTPGetAction{
@@ -248,11 +261,10 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 								Port: intstr.FromInt(c.config.AgentServerPort),
 							},
 						},
-						InitialDelaySeconds: 5,
-						PeriodSeconds:       10,
-						TimeoutSeconds:      10,
-						SuccessThreshold:    1,
-						FailureThreshold:    6,
+						PeriodSeconds:    5,
+						TimeoutSeconds:   5,
+						SuccessThreshold: 1,
+						FailureThreshold: 3,
 					},
 				},
 			},
