@@ -506,18 +506,8 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 	return err
 }
 
-// GetPodStatus retrieves the current status of a pod
-func (c *Client) GetPodStatus(ctx context.Context, podName string) (*PodStatusInfo, error) {
-	pod, err := c.clientset.CoreV1().Pods(c.namespace).Get(ctx, podName, metav1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return &PodStatusInfo{
-				Status: types.PodStatusNotFound,
-			}, nil
-		}
-		return nil, err
-	}
-
+// parsePodStatus extracts PodStatusInfo from a Kubernetes pod object.
+func parsePodStatus(pod *corev1.Pod) *PodStatusInfo {
 	status := types.PodStatusPending
 	restartCount := 0
 	restartReasons := []string{}
@@ -566,7 +556,60 @@ func (c *Client) GetPodStatus(ctx context.Context, podName string) (*PodStatusIn
 		Status:         status,
 		RestartCount:   restartCount,
 		RestartReasons: restartReasons,
-	}, nil
+	}
+}
+
+// GetPodStatus retrieves the current status of a pod
+func (c *Client) GetPodStatus(ctx context.Context, podName string) (*PodStatusInfo, error) {
+	pod, err := c.clientset.CoreV1().Pods(c.namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return &PodStatusInfo{
+				Status: types.PodStatusNotFound,
+			}, nil
+		}
+		return nil, err
+	}
+
+	return parsePodStatus(pod), nil
+}
+
+// GetPodStatuses retrieves the status of multiple pods in a single Kubernetes API call.
+// It uses a label selector (app=openhands-runtime) to list all runtime pods, then filters
+// the results to only the requested pod names. Pods not found in the list result are
+// returned with PodStatusNotFound.
+func (c *Client) GetPodStatuses(ctx context.Context, podNames []string) (map[string]*PodStatusInfo, error) {
+	if len(podNames) == 0 {
+		return make(map[string]*PodStatusInfo), nil
+	}
+
+	// List all runtime pods with a single API call using the label all runtime pods share.
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app=openhands-runtime",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+
+	// Index listed pods by name for O(1) lookup.
+	podsByName := make(map[string]*corev1.Pod, len(list.Items))
+	for i := range list.Items {
+		podsByName[list.Items[i].Name] = &list.Items[i]
+	}
+
+	// Build result map: parse status for found pods, PodStatusNotFound for missing ones.
+	result := make(map[string]*PodStatusInfo, len(podNames))
+	for _, name := range podNames {
+		if pod, ok := podsByName[name]; ok {
+			result[name] = parsePodStatus(pod)
+		} else {
+			result[name] = &PodStatusInfo{
+				Status: types.PodStatusNotFound,
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // PodStatusInfo contains pod status information

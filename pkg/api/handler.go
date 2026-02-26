@@ -461,22 +461,30 @@ func (h *Handler) GetSessionsBatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Collect all pod names and fetch their statuses in a single K8s API call.
+	if h.k8sClient != nil {
+		podNames := make([]string, 0, len(runtimesBySession))
+		for _, runtime := range runtimesBySession {
+			podNames = append(podNames, runtime.PodName)
+		}
+		if statuses, err := h.k8sClient.GetPodStatuses(ctx, podNames); err == nil {
+			for _, runtime := range runtimesBySession {
+				if statusInfo, ok := statuses[runtime.PodName]; ok {
+					runtime.PodStatus = statusInfo.Status
+					runtime.RestartCount = statusInfo.RestartCount
+					runtime.RestartReasons = statusInfo.RestartReasons
+					_ = h.stateMgr.UpdateRuntime(runtime)
+				}
+			}
+		}
+	}
+
 	responses := make([]types.RuntimeResponse, 0, len(runtimesBySession))
 	for _, sessionID := range sessionIDs {
 		runtime, ok := runtimesBySession[sessionID]
 		if !ok {
 			continue
 		}
-		// Update pod status from Kubernetes
-		if h.k8sClient != nil {
-			if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtime.PodName); err == nil {
-				runtime.PodStatus = statusInfo.Status
-				runtime.RestartCount = statusInfo.RestartCount
-				runtime.RestartReasons = statusInfo.RestartReasons
-				_ = h.stateMgr.UpdateRuntime(runtime)
-			}
-		}
-
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
 
