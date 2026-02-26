@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -492,6 +493,112 @@ func (h *Handler) GetSessionsBatch(w http.ResponseWriter, r *http.Request) {
 	// Return a plain JSON array – the OpenHands app server iterates over the
 	// response directly as a list of runtime objects.
 	respondJSON(w, http.StatusOK, responses)
+}
+
+// BatchGetConversations handles POST /sessions/batch-conversations
+// It fans out requests to agent-server pods in-cluster to batch-fetch conversation statuses,
+// eliminating the need for the caller to make N individual proxy calls.
+func (h *Handler) BatchGetConversations(w http.ResponseWriter, r *http.Request) {
+	var req types.BatchConversationsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.Debug("BatchGetConversations: Failed to decode request body: %v", err)
+		respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+		return
+	}
+
+	if len(req.Sandboxes) == 0 {
+		logger.Debug("BatchGetConversations: Empty sandboxes map")
+		respondJSON(w, http.StatusOK, map[string]json.RawMessage{})
+		return
+	}
+
+	logger.Debug("BatchGetConversations: Fetching conversations for %d sandboxes", len(req.Sandboxes))
+
+	// Fan out requests concurrently
+	type result struct {
+		runtimeID string
+		data      json.RawMessage
+	}
+
+	resultsCh := make(chan result, len(req.Sandboxes))
+	var wg sync.WaitGroup
+
+	for runtimeID, sandbox := range req.Sandboxes {
+		wg.Add(1)
+		go func(rtID string, sb types.BatchConversationSandbox) {
+			defer wg.Done()
+
+			// Look up runtime info by runtime ID first, fall back to session ID
+			runtimeInfo, err := h.stateMgr.GetRuntimeByID(rtID)
+			if err != nil {
+				// Try by session ID
+				runtimeInfo, err = h.stateMgr.GetRuntimeBySessionID(sb.SessionID)
+				if err != nil {
+					logger.Debug("BatchGetConversations: Runtime not found for %s (session %s)", rtID, sb.SessionID)
+					resultsCh <- result{runtimeID: rtID, data: json.RawMessage("[]")}
+					return
+				}
+			}
+
+			// Build in-cluster URL
+			ids := strings.Join(sb.ConversationIDs, ",")
+			inClusterURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/api/conversations?ids=%s",
+				runtimeInfo.ServiceName, h.config.Namespace, h.config.AgentServerPort, ids)
+
+			logger.Debug("BatchGetConversations: Fetching %s", inClusterURL)
+
+			// Make HTTP request with timeout
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer cancel()
+
+			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, inClusterURL, nil)
+			if err != nil {
+				logger.Debug("BatchGetConversations: Failed to create request for %s: %v", rtID, err)
+				resultsCh <- result{runtimeID: rtID, data: json.RawMessage("[]")}
+				return
+			}
+			httpReq.Header.Set("X-Session-API-Key", runtimeInfo.SessionAPIKey)
+
+			resp, err := http.DefaultClient.Do(httpReq)
+			if err != nil {
+				logger.Debug("BatchGetConversations: Request failed for %s: %v", rtID, err)
+				resultsCh <- result{runtimeID: rtID, data: json.RawMessage("[]")}
+				return
+			}
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				logger.Debug("BatchGetConversations: Failed to read response for %s: %v", rtID, err)
+				resultsCh <- result{runtimeID: rtID, data: json.RawMessage("[]")}
+				return
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				logger.Debug("BatchGetConversations: Non-200 status for %s: %d", rtID, resp.StatusCode)
+				resultsCh <- result{runtimeID: rtID, data: json.RawMessage("[]")}
+				return
+			}
+
+			// Pass through the raw JSON from the agent-server
+			resultsCh <- result{runtimeID: rtID, data: json.RawMessage(body)}
+		}(runtimeID, sandbox)
+	}
+
+	// Wait for all goroutines to complete, then close channel
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	// Aggregate results
+	response := make(map[string]json.RawMessage, len(req.Sandboxes))
+	for res := range resultsCh {
+		response[res.runtimeID] = res.data
+	}
+
+	logger.Debug("BatchGetConversations: Returning results for %d sandboxes", len(response))
+	respondJSON(w, http.StatusOK, response)
 }
 
 // GetRegistryPrefix handles GET /registry_prefix

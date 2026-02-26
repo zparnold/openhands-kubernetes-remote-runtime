@@ -116,6 +116,17 @@ type ImageExistsResponse struct {
 	Exists bool `json:"exists"`
 }
 
+// BatchConversationsRequest represents the request to batch-fetch conversation statuses
+type BatchConversationsRequest struct {
+	Sandboxes map[string]BatchConversationSandbox `json:"sandboxes"`
+}
+
+// BatchConversationSandbox represents a single sandbox entry in a batch conversations request
+type BatchConversationSandbox struct {
+	SessionID       string   `json:"session_id"`
+	ConversationIDs []string `json:"conversation_ids"`
+}
+
 // ErrorResponse represents an error response
 type ErrorResponse struct {
 	Error   string `json:"error"`

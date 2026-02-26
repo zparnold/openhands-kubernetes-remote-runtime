@@ -104,6 +104,7 @@ func main() {
 	authRouter.HandleFunc("/resume", handler.ResumeRuntime).Methods("POST")
 	authRouter.HandleFunc("/list", handler.ListRuntimes).Methods("GET")
 	authRouter.HandleFunc("/runtime/{runtime_id}", handler.GetRuntime).Methods("GET")
+	authRouter.HandleFunc("/sessions/batch-conversations", handler.BatchGetConversations).Methods("POST")
 	authRouter.HandleFunc("/sessions/batch", handler.GetSessionsBatch).Methods("GET")
 	authRouter.HandleFunc("/sessions/{session_id}", handler.GetSession).Methods("GET")
 	authRouter.HandleFunc("/registry_prefix", handler.GetRegistryPrefix).Methods("GET")
