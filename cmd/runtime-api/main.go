@@ -52,6 +52,52 @@ func main() {
 		log.Fatalf("Failed to create Kubernetes client: %v", err)
 	}
 
+	// Pre-populate state by discovering all existing sandbox pods.
+	// This prevents sandboxes from appearing "lost" after a runtime API restart.
+	discoverCtx, discoverCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	discovered, err := k8sClient.DiscoverAllRuntimes(discoverCtx)
+	discoverCancel()
+	if err != nil {
+		logger.Info("Warning: failed to discover existing runtimes: %v", err)
+	} else {
+		for _, rt := range discovered {
+			stateMgr.AddRuntime(rt)
+		}
+		logger.Info("Recovered %d existing sandbox(es) from Kubernetes", len(discovered))
+	}
+
+	// Start periodic reconciliation to discover sandboxes created by other replicas
+	// or missed during startup discovery.
+	reconcileCtx, reconcileCancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-reconcileCtx.Done():
+				return
+			case <-ticker.C:
+				rctx, rcancel := context.WithTimeout(reconcileCtx, 15*time.Second)
+				runtimes, rerr := k8sClient.DiscoverAllRuntimes(rctx)
+				rcancel()
+				if rerr != nil {
+					logger.Debug("Reconcile: failed to discover runtimes: %v", rerr)
+					continue
+				}
+				added := 0
+				for _, rt := range runtimes {
+					if _, lookupErr := stateMgr.GetRuntimeByID(rt.RuntimeID); lookupErr != nil {
+						stateMgr.AddRuntime(rt)
+						added++
+					}
+				}
+				if added > 0 {
+					logger.Info("Reconcile: recovered %d sandbox(es)", added)
+				}
+			}
+		}
+	}()
+
 	// Initialize cleanup service
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -153,6 +199,9 @@ func main() {
 	sig := <-quit
 	logger.Info("Received shutdown signal: %v", sig)
 	logger.Info("Gracefully shutting down server...")
+
+	// Stop the reconciliation loop
+	reconcileCancel()
 
 	// Stop the reaper
 	reaperInstance.Stop()

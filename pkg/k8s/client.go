@@ -759,6 +759,36 @@ func (c *Client) buildRuntimeInfoFromPod(ctx context.Context, pod *corev1.Pod, r
 	}
 }
 
+// DiscoverAllRuntimes scans all sandbox pods in the namespace and returns
+// RuntimeInfo for each one. Used at startup to pre-populate in-memory state
+// so that sandboxes are not "lost" after a runtime API restart.
+func (c *Client) DiscoverAllRuntimes(ctx context.Context) ([]*state.RuntimeInfo, error) {
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app=openhands-runtime",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+	var runtimes []*state.RuntimeInfo
+	for i := range list.Items {
+		pod := &list.Items[i]
+		runtimeID := pod.Labels["runtime-id"]
+		sessionID := pod.Labels["session-id"]
+		if runtimeID == "" || sessionID == "" {
+			continue
+		}
+		if len(pod.Spec.Containers) == 0 {
+			continue
+		}
+		// Skip pods that are terminating or completed
+		if pod.DeletionTimestamp != nil || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+			continue
+		}
+		runtimes = append(runtimes, c.buildRuntimeInfoFromPod(ctx, pod, runtimeID, sessionID))
+	}
+	return runtimes, nil
+}
+
 // DiscoverRuntimeBySessionID finds a running sandbox pod by session-id label and
 // reconstructs RuntimeInfo. Used when in-memory state was lost (e.g. runtime API restart).
 // Returns nil if no matching pod exists.
