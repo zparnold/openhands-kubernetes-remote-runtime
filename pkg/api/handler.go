@@ -21,21 +21,24 @@ import (
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
+	httptrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http"
 )
 
 // Handler handles HTTP requests
 type Handler struct {
-	k8sClient *k8s.Client
-	stateMgr  *state.StateManager
-	config    *config.Config
+	k8sClient    *k8s.Client
+	stateMgr     *state.StateManager
+	config       *config.Config
+	tracedClient *http.Client
 }
 
 // NewHandler creates a new API handler
 func NewHandler(k8sClient *k8s.Client, stateMgr *state.StateManager, cfg *config.Config) *Handler {
 	return &Handler{
-		k8sClient: k8sClient,
-		stateMgr:  stateMgr,
-		config:    cfg,
+		k8sClient:    k8sClient,
+		stateMgr:     stateMgr,
+		config:       cfg,
+		tracedClient: httptrace.WrapClient(http.DefaultClient),
 	}
 }
 
@@ -540,26 +543,12 @@ func (h *Handler) BatchGetConversations(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 
-			// Build in-cluster URL
 			ids := strings.Join(sb.ConversationIDs, ",")
-			inClusterURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/api/conversations?ids=%s",
-				runtimeInfo.ServiceName, h.config.Namespace, h.config.AgentServerPort, ids)
 
-			logger.Debug("BatchGetConversations: Fetching %s", inClusterURL)
-
-			// Make HTTP request with timeout
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			defer cancel()
 
-			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, inClusterURL, nil)
-			if err != nil {
-				logger.Debug("BatchGetConversations: Failed to create request for %s: %v", rtID, err)
-				resultsCh <- result{runtimeID: rtID, data: json.RawMessage("[]")}
-				return
-			}
-			httpReq.Header.Set("X-Session-API-Key", runtimeInfo.SessionAPIKey)
-
-			resp, err := http.DefaultClient.Do(httpReq)
+			resp, err := h.fetchConversations(ctx, runtimeInfo.ServiceName, ids, runtimeInfo.SessionAPIKey)
 			if err != nil {
 				logger.Debug("BatchGetConversations: Request failed for %s: %v", rtID, err)
 				resultsCh <- result{runtimeID: rtID, data: json.RawMessage("[]")}
@@ -599,6 +588,23 @@ func (h *Handler) BatchGetConversations(w http.ResponseWriter, r *http.Request) 
 
 	logger.Debug("BatchGetConversations: Returning results for %d sandboxes", len(response))
 	respondJSON(w, http.StatusOK, response)
+}
+
+// fetchConversations performs a GET to the in-cluster agent-server conversations endpoint.
+// The service name is an internal K8s service created by the runtime API, and the namespace
+// comes from config — both are trusted, not user-supplied.
+func (h *Handler) fetchConversations(ctx context.Context, serviceName, ids, sessionAPIKey string) (*http.Response, error) {
+	inClusterURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/api/conversations?ids=%s",
+		serviceName, h.config.Namespace, h.config.AgentServerPort, url.QueryEscape(ids))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, inClusterURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Session-API-Key", sessionAPIKey)
+
+	logger.Debug("fetchConversations: GET %s", inClusterURL)
+	return h.tracedClient.Do(req) //nolint:gosec // G704: URL built from trusted in-cluster service name and config namespace
 }
 
 // GetRegistryPrefix handles GET /registry_prefix
@@ -743,6 +749,8 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target) //nolint:gosec // G704: target is built from trusted pod IP, not user input
+	// Wrap proxy transport to propagate Datadog trace context to sandbox pods
+	proxy.Transport = httptrace.WrapRoundTripper(http.DefaultTransport)
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host

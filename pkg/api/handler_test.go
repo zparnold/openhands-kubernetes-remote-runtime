@@ -31,9 +31,10 @@ func setupTestHandler() (*Handler, *state.StateManager) {
 
 	// Create handler without k8s client for tests that don't need it
 	handler := &Handler{
-		k8sClient: nil,
-		stateMgr:  stateMgr,
-		config:    cfg,
+		k8sClient:    nil,
+		stateMgr:     stateMgr,
+		config:       cfg,
+		tracedClient: http.DefaultClient,
 	}
 
 	return handler, stateMgr
