@@ -115,17 +115,31 @@ func (s *Service) runCleanup(ctx context.Context) {
 	var cleanedCount, failedCount, idleCount int
 	var errors []string
 
+	// Batch-fetch all pod statuses in a single K8s API call.
+	podNames := make([]string, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		if runtime.Status != types.StatusStopped {
+			podNames = append(podNames, runtime.PodName)
+		}
+	}
+	statuses, statusErr := s.k8sClient.GetPodStatuses(ctx, podNames)
+	if statusErr != nil {
+		logger.Debug("Cleanup: Failed to batch-fetch pod statuses: %v", statusErr)
+		errors = append(errors, fmt.Sprintf("batch pod status fetch failed: %v", statusErr))
+	}
+
 	for _, runtime := range runtimes {
 		// Skip if runtime is already stopped or being stopped
 		if runtime.Status == types.StatusStopped {
 			continue
 		}
 
-		// Get current pod status from Kubernetes
-		podStatus, err := s.k8sClient.GetPodStatus(ctx, runtime.PodName)
-		if err != nil {
-			logger.Debug("Cleanup: Error getting pod status for %s: %v", runtime.PodName, err)
-			errors = append(errors, fmt.Sprintf("error getting pod status for %s: %v", runtime.PodName, err))
+		// Skip if batch fetch failed or pod not found in results
+		if statusErr != nil {
+			continue
+		}
+		podStatus, ok := statuses[runtime.PodName]
+		if !ok {
 			continue
 		}
 

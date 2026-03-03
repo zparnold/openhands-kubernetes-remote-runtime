@@ -355,18 +355,30 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 	runtimes := h.stateMgr.ListRuntimes()
 	logger.Debug("ListRuntimes: Found %d runtimes", len(runtimes))
 
+	// Batch-fetch all pod statuses in a single K8s API call.
+	if h.k8sClient != nil {
+		podNames := make([]string, 0, len(runtimes))
+		for _, runtime := range runtimes {
+			podNames = append(podNames, runtime.PodName)
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
+		defer cancel()
+		if statuses, err := h.k8sClient.GetPodStatuses(ctx, podNames); err == nil {
+			for _, runtime := range runtimes {
+				if statusInfo, ok := statuses[runtime.PodName]; ok {
+					runtime.PodStatus = statusInfo.Status
+					runtime.RestartCount = statusInfo.RestartCount
+					runtime.RestartReasons = statusInfo.RestartReasons
+					_ = h.stateMgr.UpdateRuntime(runtime)
+				}
+			}
+		} else {
+			logger.Debug("ListRuntimes: Failed to batch-fetch pod statuses: %v", err)
+		}
+	}
+
 	responses := make([]types.RuntimeResponse, 0, len(runtimes))
 	for _, runtime := range runtimes {
-		// Update pod status from Kubernetes
-		ctx, cancel := context.WithTimeout(r.Context(), h.config.K8sQueryTimeout)
-		if statusInfo, err := h.k8sClient.GetPodStatus(ctx, runtime.PodName); err == nil {
-			runtime.PodStatus = statusInfo.Status
-			runtime.RestartCount = statusInfo.RestartCount
-			runtime.RestartReasons = statusInfo.RestartReasons
-			_ = h.stateMgr.UpdateRuntime(runtime)
-		}
-		cancel() // Cancel immediately after use in loop
-
 		responses = append(responses, h.buildRuntimeResponse(runtime))
 	}
 
