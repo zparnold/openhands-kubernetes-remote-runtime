@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
+	"golang.org/x/sync/singleflight"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +34,13 @@ type Client struct {
 	clientset *kubernetes.Clientset
 	config    *config.Config
 	namespace string
+
+	// Pod status cache: deduplicates concurrent K8s List calls and caches results briefly.
+	podCacheMu   sync.RWMutex
+	podCache     map[string]*PodStatusInfo
+	podCacheTime time.Time
+	podCacheTTL  time.Duration
+	podCacheSF   singleflight.Group
 }
 
 // NewClient creates a new Kubernetes client
@@ -62,9 +71,10 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	logger.Debug("NewClient: Kubernetes client created successfully for namespace %s", cfg.Namespace)
 
 	return &Client{
-		clientset: clientset,
-		config:    cfg,
-		namespace: cfg.Namespace,
+		clientset:   clientset,
+		config:      cfg,
+		namespace:   cfg.Namespace,
+		podCacheTTL: 3 * time.Second,
 	}, nil
 }
 
@@ -578,36 +588,81 @@ func (c *Client) GetPodStatus(ctx context.Context, podName string) (*PodStatusIn
 // It uses a label selector (app=openhands-runtime) to list all runtime pods, then filters
 // the results to only the requested pod names. Pods not found in the list result are
 // returned with PodStatusNotFound.
+//
+// Results are cached for podCacheTTL (3s) and concurrent callers share one K8s API call
+// via singleflight, preventing the API server from being overwhelmed when multiple /list
+// requests arrive simultaneously.
 func (c *Client) GetPodStatuses(ctx context.Context, podNames []string) (map[string]*PodStatusInfo, error) {
 	if len(podNames) == 0 {
 		return make(map[string]*PodStatusInfo), nil
 	}
 
-	// List all runtime pods with a single API call using the label all runtime pods share.
-	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app=openhands-runtime",
-	})
+	allStatuses, err := c.getAllPodStatuses(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list pods: %w", err)
+		return nil, err
 	}
 
-	// Index listed pods by name for O(1) lookup.
-	podsByName := make(map[string]*corev1.Pod, len(list.Items))
-	for i := range list.Items {
-		podsByName[list.Items[i].Name] = &list.Items[i]
-	}
-
-	// Build result map: parse status for found pods, PodStatusNotFound for missing ones.
+	// Filter to only requested pod names.
 	result := make(map[string]*PodStatusInfo, len(podNames))
 	for _, name := range podNames {
-		if pod, ok := podsByName[name]; ok {
-			result[name] = parsePodStatus(pod)
+		if info, ok := allStatuses[name]; ok {
+			result[name] = info
 		} else {
 			result[name] = &PodStatusInfo{
 				Status: types.PodStatusNotFound,
 			}
 		}
 	}
+
+	return result, nil
+}
+
+// getAllPodStatuses returns cached pod statuses or fetches them from the K8s API.
+// Concurrent callers share a single in-flight K8s API call via singleflight.
+func (c *Client) getAllPodStatuses(ctx context.Context) (map[string]*PodStatusInfo, error) {
+	// Fast path: return cached result if still fresh.
+	c.podCacheMu.RLock()
+	if c.podCache != nil && time.Since(c.podCacheTime) < c.podCacheTTL {
+		cached := c.podCache
+		c.podCacheMu.RUnlock()
+		return cached, nil
+	}
+	c.podCacheMu.RUnlock()
+
+	// Slow path: fetch from K8s API, deduplicated by singleflight.
+	v, err, _ := c.podCacheSF.Do("pod-statuses", func() (interface{}, error) {
+		return c.fetchAllPodStatuses(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return v.(map[string]*PodStatusInfo), nil
+}
+
+// fetchAllPodStatuses lists all runtime pods and parses their statuses.
+func (c *Client) fetchAllPodStatuses(ctx context.Context) (map[string]*PodStatusInfo, error) {
+	start := time.Now()
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app=openhands-runtime",
+		// Serve from API server watch cache for lower latency.
+		ResourceVersion: "0",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+	logger.Debug("fetchAllPodStatuses: Listed %d pods in %s", len(list.Items), time.Since(start))
+
+	result := make(map[string]*PodStatusInfo, len(list.Items))
+	for i := range list.Items {
+		result[list.Items[i].Name] = parsePodStatus(&list.Items[i])
+	}
+
+	// Update cache.
+	c.podCacheMu.Lock()
+	c.podCache = result
+	c.podCacheTime = time.Now()
+	c.podCacheMu.Unlock()
 
 	return result, nil
 }

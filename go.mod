@@ -6,6 +6,7 @@ toolchain go1.24.12
 
 require (
 	github.com/gorilla/mux v1.8.1
+	golang.org/x/sync v0.15.0
 	gopkg.in/DataDog/dd-trace-go.v1 v1.74.8
 	k8s.io/api v0.31.4
 	k8s.io/apimachinery v0.32.3
