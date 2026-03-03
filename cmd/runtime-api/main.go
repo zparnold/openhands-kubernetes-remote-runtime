@@ -179,7 +179,7 @@ func main() {
 		Addr:         addr,
 		Handler:      serverHandler,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 5 * time.Minute, // Must accommodate reverse proxy to sandbox pods (VSCode, long-running requests)
 		IdleTimeout:  60 * time.Second,
 	}
 

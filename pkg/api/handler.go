@@ -761,8 +761,12 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target) //nolint:gosec // G704: target is built from trusted pod IP, not user input
-	// Wrap proxy transport to propagate Datadog trace context to sandbox pods
-	proxy.Transport = httptrace.WrapRoundTripper(http.DefaultTransport)
+	// Use a transport with ResponseHeaderTimeout to prevent hanging when backend pods
+	// never respond (e.g. pod not yet ready, crashed). The default transport has no such
+	// timeout, which caused 742+ second hangs observed in Datadog.
+	proxyTransport := http.DefaultTransport.(*http.Transport).Clone()
+	proxyTransport.ResponseHeaderTimeout = 120 * time.Second
+	proxy.Transport = httptrace.WrapRoundTripper(proxyTransport)
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
