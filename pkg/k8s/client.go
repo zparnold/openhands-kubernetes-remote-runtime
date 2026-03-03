@@ -521,6 +521,8 @@ func parsePodStatus(pod *corev1.Pod) *PodStatusInfo {
 	status := types.PodStatusPending
 	restartCount := 0
 	restartReasons := []string{}
+	var lastTermReason, lastTermMessage string
+	var lastTermExitCode int
 
 	// Check container statuses
 	for _, containerStatus := range pod.Status.ContainerStatuses {
@@ -535,6 +537,19 @@ func parsePodStatus(pod *corev1.Pod) *PodStatusInfo {
 
 		if containerStatus.State.Terminated != nil {
 			restartReasons = append(restartReasons, containerStatus.State.Terminated.Reason)
+		}
+
+		// Capture why the container LAST crashed (from lastState.terminated).
+		// This is the key diagnostic: a running container with RestartCount > 0
+		// will have its previous crash reason here (e.g. OOMKilled, Error).
+		if containerStatus.LastTerminationState.Terminated != nil {
+			lt := containerStatus.LastTerminationState.Terminated
+			lastTermReason = lt.Reason
+			lastTermExitCode = int(lt.ExitCode)
+			lastTermMessage = lt.Message
+			if lt.Reason != "" {
+				restartReasons = append(restartReasons, "last:"+lt.Reason)
+			}
 		}
 	}
 
@@ -563,9 +578,12 @@ func parsePodStatus(pod *corev1.Pod) *PodStatusInfo {
 	}
 
 	return &PodStatusInfo{
-		Status:         status,
-		RestartCount:   restartCount,
-		RestartReasons: restartReasons,
+		Status:                  status,
+		RestartCount:            restartCount,
+		RestartReasons:          restartReasons,
+		LastTerminationReason:   lastTermReason,
+		LastTerminationExitCode: lastTermExitCode,
+		LastTerminationMessage:  lastTermMessage,
 	}
 }
 
@@ -672,6 +690,12 @@ type PodStatusInfo struct {
 	Status         types.PodStatus
 	RestartCount   int
 	RestartReasons []string
+
+	// LastTermination captures why the container last exited (from lastState.terminated).
+	// Populated when RestartCount > 0 (i.e. the container has been restarted at least once).
+	LastTerminationReason   string // e.g. "OOMKilled", "Error", "Completed"
+	LastTerminationExitCode int    // e.g. 137 (SIGKILL/OOM), 1 (general error), 0 (clean exit)
+	LastTerminationMessage  string // optional message from the container
 }
 
 // DeletePod deletes a pod

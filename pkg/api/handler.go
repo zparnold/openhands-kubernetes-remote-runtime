@@ -369,6 +369,8 @@ func (h *Handler) ListRuntimes(w http.ResponseWriter, r *http.Request) {
 					runtime.PodStatus = statusInfo.Status
 					runtime.RestartCount = statusInfo.RestartCount
 					runtime.RestartReasons = statusInfo.RestartReasons
+					runtime.LastTerminationReason = statusInfo.LastTerminationReason
+					runtime.LastTerminationExitCode = statusInfo.LastTerminationExitCode
 					_ = h.stateMgr.UpdateRuntime(runtime)
 				}
 			}
@@ -646,15 +648,17 @@ func (h *Handler) CheckImageExists(w http.ResponseWriter, r *http.Request) {
 // buildRuntimeResponse builds a RuntimeResponse from RuntimeInfo
 func (h *Handler) buildRuntimeResponse(info *state.RuntimeInfo) types.RuntimeResponse {
 	resp := types.RuntimeResponse{
-		RuntimeID:      info.RuntimeID,
-		SessionID:      info.SessionID,
-		URL:            info.URL,
-		SessionAPIKey:  info.SessionAPIKey,
-		Status:         info.Status,
-		PodStatus:      info.PodStatus,
-		WorkHosts:      info.WorkHosts,
-		RestartCount:   info.RestartCount,
-		RestartReasons: info.RestartReasons,
+		RuntimeID:               info.RuntimeID,
+		SessionID:               info.SessionID,
+		URL:                     info.URL,
+		SessionAPIKey:           info.SessionAPIKey,
+		Status:                  info.Status,
+		PodStatus:               info.PodStatus,
+		WorkHosts:               info.WorkHosts,
+		RestartCount:            info.RestartCount,
+		RestartReasons:          info.RestartReasons,
+		LastTerminationReason:   info.LastTerminationReason,
+		LastTerminationExitCode: info.LastTerminationExitCode,
 	}
 	if h.config.ProxyBaseURL != "" {
 		base := strings.TrimSuffix(h.config.ProxyBaseURL, "/")
@@ -672,6 +676,8 @@ func (h *Handler) updateRuntimeStatusFromK8s(runtimeInfo *state.RuntimeInfo) {
 		runtimeInfo.PodStatus = statusInfo.Status
 		runtimeInfo.RestartCount = statusInfo.RestartCount
 		runtimeInfo.RestartReasons = statusInfo.RestartReasons
+		runtimeInfo.LastTerminationReason = statusInfo.LastTerminationReason
+		runtimeInfo.LastTerminationExitCode = statusInfo.LastTerminationExitCode
 		_ = h.stateMgr.UpdateRuntime(runtimeInfo)
 	}
 }

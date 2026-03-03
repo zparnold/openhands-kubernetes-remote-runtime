@@ -145,8 +145,10 @@ func (s *Service) runCleanup(ctx context.Context) {
 
 		shouldCleanup, reason := s.shouldCleanupRuntime(runtime, podStatus)
 		if shouldCleanup {
-			logger.Info("Cleanup: Cleaning up runtime %s (session: %s) - Reason: %s",
-				runtime.RuntimeID, runtime.SessionID, reason)
+			logger.Info("Cleanup: Cleaning up runtime %s (session: %s) - Reason: %s, Restarts: %d, LastTermination: %s (exit %d) %s",
+				runtime.RuntimeID, runtime.SessionID, reason,
+				podStatus.RestartCount, podStatus.LastTerminationReason,
+				podStatus.LastTerminationExitCode, podStatus.LastTerminationMessage)
 
 			if err := s.k8sClient.DeleteSandbox(ctx, runtime); err != nil {
 				logger.Info("Cleanup: Error deleting sandbox for runtime %s: %v", runtime.RuntimeID, err)

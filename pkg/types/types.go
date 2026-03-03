@@ -94,6 +94,10 @@ type RuntimeResponse struct {
 	WorkHosts      map[string]int `json:"work_hosts,omitempty"`
 	RestartCount   int            `json:"restart_count,omitempty"`
 	RestartReasons []string       `json:"restart_reasons,omitempty"`
+
+	// Last termination details (why the container last exited, if it has restarted)
+	LastTerminationReason   string `json:"last_termination_reason,omitempty"`
+	LastTerminationExitCode int    `json:"last_termination_exit_code,omitempty"`
 }
 
 // ListResponse represents the response from list operations

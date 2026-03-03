@@ -24,6 +24,10 @@ type RuntimeInfo struct {
 	RestartReasons   []string
 	CreatedAt        time.Time // Track when the runtime was created for cleanup purposes
 	LastActivityTime time.Time // Track last activity for idle timeout
+
+	// Last termination info (propagated from K8s lastState.terminated)
+	LastTerminationReason   string
+	LastTerminationExitCode int
 }
 
 // StateManager manages runtime state
