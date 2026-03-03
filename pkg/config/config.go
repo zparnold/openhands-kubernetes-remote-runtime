@@ -51,6 +51,7 @@ type Config struct {
 	CleanupIntervalMinutes    int  // Interval between cleanup runs (in minutes)
 	CleanupFailedThresholdMin int  // Time before cleaning up failed pods (in minutes)
 	CleanupIdleThresholdMin   int  // Time before cleaning up idle pods (in minutes)
+	CleanupRestartThreshold   int  // Restart count above which a pod is cleaned up
 
 	// Optional CA certificate for sandbox pods. When set, the secret is mounted into each sandbox
 	// at /usr/local/share/ca-certificates/additional-ca.crt. The runtime image runs update-ca-certificates
@@ -89,6 +90,7 @@ func LoadConfig() *Config {
 		CleanupIntervalMinutes:    getEnvAsInt("CLEANUP_INTERVAL_MINUTES", 5),
 		CleanupFailedThresholdMin: getEnvAsInt("CLEANUP_FAILED_THRESHOLD_MINUTES", 60),
 		CleanupIdleThresholdMin:   getEnvAsInt("CLEANUP_IDLE_THRESHOLD_MINUTES", 1440), // 24 hours
+		CleanupRestartThreshold:   getEnvAsInt("CLEANUP_RESTART_THRESHOLD", 5),
 		CACertSecretName:          getEnv("CA_CERT_SECRET_NAME", ""),
 		CACertSecretKey:           getEnv("CA_CERT_SECRET_KEY", "ca-certificates.crt"),
 		IdleTimeoutHours:          getEnvAsInt("IDLE_TIMEOUT_HOURS", 12),

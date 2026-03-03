@@ -161,7 +161,7 @@ func (s *Service) runCleanup(ctx context.Context) {
 
 			cleanedCount++
 			switch reason {
-			case "pod_failed":
+			case "pod_failed", "excessive_restarts", "pod_not_found":
 				failedCount++
 			case "pod_idle":
 				idleCount++
@@ -188,6 +188,17 @@ func (s *Service) runCleanup(ctx context.Context) {
 // shouldCleanupRuntime determines if a runtime should be cleaned up
 func (s *Service) shouldCleanupRuntime(runtime *state.RuntimeInfo, podStatus *k8s.PodStatusInfo) (bool, string) {
 	now := time.Now()
+
+	// Pod no longer exists — clean up orphaned services/ingresses immediately.
+	if podStatus.Status == types.PodStatusNotFound {
+		return true, "pod_not_found"
+	}
+
+	// Excessive restarts indicate persistent OOMKills or crash loops even if the
+	// pod is technically Ready right now. Clean up to free cluster resources.
+	if s.config.CleanupRestartThreshold > 0 && podStatus.RestartCount >= s.config.CleanupRestartThreshold {
+		return true, "excessive_restarts"
+	}
 
 	// Check if pod is in a failed state for too long
 	if podStatus.Status == types.PodStatusFailed || podStatus.Status == types.PodStatusCrashLoopBackOff {
