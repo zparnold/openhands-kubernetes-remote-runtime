@@ -119,7 +119,13 @@ func main() {
 	router := mux.NewRouter()
 	var serverHandler http.Handler = router
 	if os.Getenv("DD_AGENT_HOST") != "" {
-		tracedRouter := muxtrace.WrapRouter(router, muxtrace.WithServiceName("openhands-runtime-api"))
+		tracedRouter := muxtrace.WrapRouter(router,
+			muxtrace.WithServiceName("openhands-runtime-api"),
+			muxtrace.WithIgnoreRequest(func(r *http.Request) bool {
+				p := r.URL.Path
+				return p == "/health" || p == "/liveness" || p == "/readiness"
+			}),
+		)
 		serverHandler = tracedRouter
 	}
 	// Disable path cleaning so percent-encoded characters (e.g. %2F in file upload
