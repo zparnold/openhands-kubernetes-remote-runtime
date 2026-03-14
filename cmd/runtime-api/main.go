@@ -22,6 +22,11 @@ import (
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
+func isHealthCheck(r *http.Request) bool {
+	p := r.URL.Path
+	return p == "/health" || p == "/liveness" || p == "/readiness"
+}
+
 func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
@@ -121,10 +126,7 @@ func main() {
 	if os.Getenv("DD_AGENT_HOST") != "" {
 		tracedRouter := muxtrace.WrapRouter(router,
 			muxtrace.WithServiceName("openhands-runtime-api"),
-			muxtrace.WithIgnoreRequest(func(r *http.Request) bool {
-				p := r.URL.Path
-				return p == "/health" || p == "/liveness" || p == "/readiness"
-			}),
+			muxtrace.WithIgnoreRequest(isHealthCheck),
 		)
 		serverHandler = tracedRouter
 	}
