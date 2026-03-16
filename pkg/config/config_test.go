@@ -328,8 +328,8 @@ func TestLoadConfig_IdleTimeout(t *testing.T) {
 		os.Unsetenv("IDLE_TIMEOUT_HOURS")
 		os.Unsetenv("REAPER_CHECK_INTERVAL")
 		cfg := LoadConfig()
-		if cfg.IdleTimeoutHours != 12 {
-			t.Errorf("Expected default IdleTimeoutHours 12, got %d", cfg.IdleTimeoutHours)
+		if cfg.IdleTimeoutHours != 72 {
+			t.Errorf("Expected default IdleTimeoutHours 72, got %d", cfg.IdleTimeoutHours)
 		}
 		if cfg.ReaperCheckInterval != 15*time.Minute {
 			t.Errorf("Expected default ReaperCheckInterval 15m, got %v", cfg.ReaperCheckInterval)

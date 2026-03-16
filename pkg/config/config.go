@@ -60,7 +60,7 @@ type Config struct {
 	CACertSecretKey  string // Key within the secret (default "ca-certificates.crt")
 
 	// Idle timeout reaper configuration
-	IdleTimeoutHours    int           // Idle timeout in hours before reaping sandboxes (default: 12)
+	IdleTimeoutHours    int           // Idle timeout in hours before reaping sandboxes (default: 72)
 	ReaperCheckInterval time.Duration // How often to check for idle sandboxes (default: 15 minutes)
 }
 
@@ -93,7 +93,7 @@ func LoadConfig() *Config {
 		CleanupRestartThreshold:   getEnvAsInt("CLEANUP_RESTART_THRESHOLD", 5),
 		CACertSecretName:          getEnv("CA_CERT_SECRET_NAME", ""),
 		CACertSecretKey:           getEnv("CA_CERT_SECRET_KEY", "ca-certificates.crt"),
-		IdleTimeoutHours:          getEnvAsInt("IDLE_TIMEOUT_HOURS", 12),
+		IdleTimeoutHours:          getEnvAsInt("IDLE_TIMEOUT_HOURS", 72),
 		ReaperCheckInterval:       getEnvAsDuration("REAPER_CHECK_INTERVAL", 15*time.Minute),
 	}
 }
