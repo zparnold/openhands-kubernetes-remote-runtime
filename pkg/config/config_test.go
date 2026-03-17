@@ -308,6 +308,41 @@ func TestLoadConfig_CACert(t *testing.T) {
 	})
 }
 
+func TestLoadConfig_DirectRouting(t *testing.T) {
+	orig := os.Getenv("DIRECT_ROUTING")
+	defer func() {
+		if orig == "" {
+			os.Unsetenv("DIRECT_ROUTING")
+		} else {
+			os.Setenv("DIRECT_ROUTING", orig)
+		}
+	}()
+
+	t.Run("Disabled by default", func(t *testing.T) {
+		os.Unsetenv("DIRECT_ROUTING")
+		cfg := LoadConfig()
+		if cfg.DirectRouting {
+			t.Error("Expected DirectRouting to be false by default")
+		}
+	})
+
+	t.Run("Enabled via env", func(t *testing.T) {
+		os.Setenv("DIRECT_ROUTING", "true")
+		cfg := LoadConfig()
+		if !cfg.DirectRouting {
+			t.Error("Expected DirectRouting to be true when DIRECT_ROUTING=true")
+		}
+	})
+
+	t.Run("Disabled via env", func(t *testing.T) {
+		os.Setenv("DIRECT_ROUTING", "false")
+		cfg := LoadConfig()
+		if cfg.DirectRouting {
+			t.Error("Expected DirectRouting to be false when DIRECT_ROUTING=false")
+		}
+	})
+}
+
 func TestLoadConfig_IdleTimeout(t *testing.T) {
 	origIdleHours := os.Getenv("IDLE_TIMEOUT_HOURS")
 	origReaperInterval := os.Getenv("REAPER_CHECK_INTERVAL")

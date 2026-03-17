@@ -380,6 +380,14 @@ func (c *Client) createService(ctx context.Context, runtimeInfo *state.RuntimeIn
 }
 
 func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeInfo) error {
+	if c.config.DirectRouting {
+		return c.createDirectRoutingIngresses(ctx, runtimeInfo)
+	}
+	return c.createSubdomainIngress(ctx, runtimeInfo)
+}
+
+// createSubdomainIngress creates the legacy 4-rule subdomain-based ingress.
+func (c *Client) createSubdomainIngress(ctx context.Context, runtimeInfo *state.RuntimeInfo) error {
 	labels := map[string]string{
 		"app":        "openhands-runtime",
 		"runtime-id": runtimeInfo.RuntimeID,
@@ -390,11 +398,8 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 
 	// Ingress hostnames must be RFC 1123 subdomains (lowercase alphanumeric, '-' or '.')
 	sessionIDForHost := strings.ToLower(runtimeInfo.SessionID)
-	// Create ingress for agent server (main subdomain)
 	agentHost := fmt.Sprintf("%s.%s", sessionIDForHost, c.config.BaseDomain)
-	// Create ingress for vscode (vscode- prefix)
 	vscodeHost := fmt.Sprintf("vscode-%s.%s", sessionIDForHost, c.config.BaseDomain)
-	// Create ingress for workers
 	worker1Host := fmt.Sprintf("work-1-%s.%s", sessionIDForHost, c.config.BaseDomain)
 	worker2Host := fmt.Sprintf("work-2-%s.%s", sessionIDForHost, c.config.BaseDomain)
 
@@ -415,7 +420,6 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: &ingressClassName,
 			Rules: []networkingv1.IngressRule{
-				// Agent server rule
 				{
 					Host: agentHost,
 					IngressRuleValue: networkingv1.IngressRuleValue{
@@ -437,7 +441,6 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 						},
 					},
 				},
-				// VSCode rule
 				{
 					Host: vscodeHost,
 					IngressRuleValue: networkingv1.IngressRuleValue{
@@ -459,7 +462,6 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 						},
 					},
 				},
-				// Worker 1 rule
 				{
 					Host: worker1Host,
 					IngressRuleValue: networkingv1.IngressRuleValue{
@@ -481,7 +483,6 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 						},
 					},
 				},
-				// Worker 2 rule
 				{
 					Host: worker2Host,
 					IngressRuleValue: networkingv1.IngressRuleValue{
@@ -515,6 +516,176 @@ func (c *Client) createIngress(ctx context.Context, runtimeInfo *state.RuntimeIn
 
 	_, err := c.clientset.NetworkingV1().Ingresses(c.namespace).Create(ctx, ingress, metav1.CreateOptions{})
 	return err
+}
+
+// createDirectRoutingIngresses creates two path-based ingresses on the shared BaseDomain host.
+// Ingress 1 (agent + workers): regex paths with rewrite-target to strip the /sandbox/{id} prefix.
+// Ingress 2 (vscode): prefix path without rewrite — VSCode uses --server-base-path so it expects
+// the full path to be preserved.
+//
+// Two separate Ingress resources are required because rewrite-target is an ingress-level annotation
+// in the NGINX ingress controller; a single ingress cannot have different rewrites for different paths.
+// NGINX gives prefix locations (^~) priority over regex locations, so the VSCode ingress will
+// correctly intercept /sandbox/{id}/vscode/... before the agent catch-all regex matches it.
+func (c *Client) createDirectRoutingIngresses(ctx context.Context, runtimeInfo *state.RuntimeInfo) error {
+	labels := map[string]string{
+		"app":        "openhands-runtime",
+		"runtime-id": runtimeInfo.RuntimeID,
+	}
+
+	ingressClassName := c.config.IngressClass
+	host := c.config.BaseDomain
+	runtimeID := runtimeInfo.RuntimeID
+
+	// Shared base annotations (cert-manager, proxy timeouts, websockets, etc.)
+	baseAnnotations := map[string]string{
+		"nginx.ingress.kubernetes.io/ssl-redirect":       "true",
+		"nginx.ingress.kubernetes.io/websocket-services": runtimeInfo.ServiceName,
+	}
+	for k, v := range c.config.SandboxIngressAnnotations {
+		baseAnnotations[k] = v
+	}
+
+	// --- Ingress 1: Agent + Workers (regex paths with prefix stripping) ---
+	agentAnnotations := make(map[string]string, len(baseAnnotations)+2)
+	for k, v := range baseAnnotations {
+		agentAnnotations[k] = v
+	}
+	agentAnnotations["nginx.ingress.kubernetes.io/use-regex"] = "true"
+	agentAnnotations["nginx.ingress.kubernetes.io/rewrite-target"] = "/$2"
+
+	pathTypeImplementationSpecific := networkingv1.PathTypeImplementationSpecific
+	agentIngress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        runtimeInfo.IngressName,
+			Namespace:   c.namespace,
+			Labels:      labels,
+			Annotations: agentAnnotations,
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &ingressClassName,
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: host,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								// Worker 1 (more specific, matched before agent catch-all)
+								{
+									Path:     fmt.Sprintf("/sandbox/%s/worker1(/|$)(.*)", runtimeID),
+									PathType: &pathTypeImplementationSpecific,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: runtimeInfo.ServiceName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: portToInt32(c.config.Worker1Port),
+											},
+										},
+									},
+								},
+								// Worker 2
+								{
+									Path:     fmt.Sprintf("/sandbox/%s/worker2(/|$)(.*)", runtimeID),
+									PathType: &pathTypeImplementationSpecific,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: runtimeInfo.ServiceName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: portToInt32(c.config.Worker2Port),
+											},
+										},
+									},
+								},
+								// Agent server catch-all (must be last — least specific)
+								{
+									Path:     fmt.Sprintf("/sandbox/%s(/|$)(.*)", runtimeID),
+									PathType: &pathTypeImplementationSpecific,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: runtimeInfo.ServiceName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: portToInt32(c.config.AgentServerPort),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			// Reuse the existing TLS certificate for the shared host.
+			// cert-manager already manages a certificate for BaseDomain via the
+			// runtime API's own ingress; referencing it here avoids duplicate issuance.
+			TLS: []networkingv1.IngressTLS{
+				{
+					Hosts:      []string{host},
+					SecretName: host,
+				},
+			},
+		},
+	}
+
+	if _, err := c.clientset.NetworkingV1().Ingresses(c.namespace).Create(ctx, agentIngress, metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("create agent ingress: %w", err)
+	}
+
+	// --- Ingress 2: VSCode (prefix path, no rewrite) ---
+	// pathType Prefix generates a ^~ location in NGINX, which takes priority over regex
+	// locations from the agent ingress, so /sandbox/{id}/vscode/... hits VSCode, not the agent.
+	pathTypePrefix := networkingv1.PathTypePrefix
+	vscodeAnnotations := make(map[string]string, len(baseAnnotations))
+	for k, v := range baseAnnotations {
+		vscodeAnnotations[k] = v
+	}
+	vscodeIngress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        runtimeInfo.IngressName + "-vscode",
+			Namespace:   c.namespace,
+			Labels:      labels,
+			Annotations: vscodeAnnotations,
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &ingressClassName,
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: host,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     fmt.Sprintf("/sandbox/%s/vscode", runtimeID),
+									PathType: &pathTypePrefix,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: runtimeInfo.ServiceName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: portToInt32(c.config.VSCodePort),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			TLS: []networkingv1.IngressTLS{
+				{
+					Hosts:      []string{host},
+					SecretName: host,
+				},
+			},
+		},
+	}
+
+	if _, err := c.clientset.NetworkingV1().Ingresses(c.namespace).Create(ctx, vscodeIngress, metav1.CreateOptions{}); err != nil {
+		// Roll back the agent ingress we already created
+		_ = c.DeleteIngress(ctx, runtimeInfo.IngressName)
+		return fmt.Errorf("create vscode ingress: %w", err)
+	}
+
+	return nil
 }
 
 // parsePodStatus extracts PodStatusInfo from a Kubernetes pod object.
@@ -736,6 +907,14 @@ func (c *Client) DeleteSandbox(ctx context.Context, runtimeInfo *state.RuntimeIn
 	if err := c.DeleteIngress(ctx, runtimeInfo.IngressName); err != nil && !errors.IsNotFound(err) {
 		deleteErrors = append(deleteErrors, fmt.Errorf("failed to delete ingress: %w", err))
 		logger.Info("DeleteSandbox: Error deleting ingress: %v", err)
+	}
+	// In direct routing mode a second VSCode ingress is created. Always attempt to
+	// delete it; NotFound is silently ignored so this is safe in subdomain mode too.
+	vsCodeIngressName := runtimeInfo.IngressName + "-vscode"
+	logger.Debug("DeleteSandbox: Deleting vscode ingress %s", vsCodeIngressName)
+	if err := c.DeleteIngress(ctx, vsCodeIngressName); err != nil && !errors.IsNotFound(err) {
+		deleteErrors = append(deleteErrors, fmt.Errorf("failed to delete vscode ingress: %w", err))
+		logger.Info("DeleteSandbox: Error deleting vscode ingress: %v", err)
 	}
 
 	logger.Debug("DeleteSandbox: Deleting service %s", runtimeInfo.ServiceName)

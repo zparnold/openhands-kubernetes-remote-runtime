@@ -458,6 +458,56 @@ func TestBuildRuntimeResponse_WithProxyBaseURLTrailingSlash(t *testing.T) {
 	}
 }
 
+func TestBuildRuntimeResponse_WithDirectRouting(t *testing.T) {
+	handler, stateMgr := setupTestHandler()
+	handler.config.DirectRouting = true
+	handler.config.BaseDomain = "runtime-api.example.com"
+
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID:     "rt-direct",
+		SessionID:     "sess-direct",
+		URL:           "https://sess-direct.runtime-api.example.com",
+		SessionAPIKey: "skey",
+		Status:        types.StatusRunning,
+		PodStatus:     types.PodStatusReady,
+		ServiceName:   "runtime-rt-direct",
+	})
+
+	info, _ := stateMgr.GetRuntimeByID("rt-direct")
+	resp := handler.buildRuntimeResponse(info)
+
+	expectedURL := "https://runtime-api.example.com/sandbox/rt-direct"
+	if resp.URL != expectedURL {
+		t.Errorf("Expected URL %q, got %q", expectedURL, resp.URL)
+	}
+	expectedVSCode := "https://runtime-api.example.com/sandbox/rt-direct/vscode"
+	if resp.VSCodeURL != expectedVSCode {
+		t.Errorf("Expected VSCodeURL %q, got %q", expectedVSCode, resp.VSCodeURL)
+	}
+}
+
+func TestBuildRuntimeResponse_DirectRoutingTakesPrecedenceOverProxy(t *testing.T) {
+	handler, stateMgr := setupTestHandler()
+	handler.config.DirectRouting = true
+	handler.config.BaseDomain = "runtime-api.example.com"
+	handler.config.ProxyBaseURL = "https://proxy.example.com" // should be ignored
+
+	stateMgr.AddRuntime(&state.RuntimeInfo{
+		RuntimeID: "rt-both",
+		SessionID: "sess-both",
+		Status:    types.StatusRunning,
+		PodStatus: types.PodStatusReady,
+	})
+
+	info, _ := stateMgr.GetRuntimeByID("rt-both")
+	resp := handler.buildRuntimeResponse(info)
+
+	// DirectRouting takes precedence — URL must use BaseDomain, not ProxyBaseURL
+	if resp.URL != "https://runtime-api.example.com/sandbox/rt-both" {
+		t.Errorf("Expected DirectRouting URL, got %q", resp.URL)
+	}
+}
+
 func TestProxySandbox_NotFound(t *testing.T) {
 	handler, stateMgr := setupTestHandler()
 	stateMgr.AddRuntime(&state.RuntimeInfo{

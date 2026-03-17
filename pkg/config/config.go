@@ -59,6 +59,11 @@ type Config struct {
 	CACertSecretName string // Kubernetes secret name (e.g. "ca-certificates")
 	CACertSecretKey  string // Key within the secret (default "ca-certificates.crt")
 
+	// Direct routing: when true, sandbox ingresses use path-based rules on BaseDomain
+	// instead of subdomain-based rules. Traffic goes directly from ingress to pod,
+	// bypassing the runtime API proxy. Reduces latency and eliminates WebSocket drops.
+	DirectRouting bool
+
 	// Idle timeout reaper configuration
 	IdleTimeoutHours    int           // Idle timeout in hours before reaping sandboxes (default: 72)
 	ReaperCheckInterval time.Duration // How often to check for idle sandboxes (default: 15 minutes)
@@ -93,6 +98,7 @@ func LoadConfig() *Config {
 		CleanupRestartThreshold:   getEnvAsInt("CLEANUP_RESTART_THRESHOLD", 5),
 		CACertSecretName:          getEnv("CA_CERT_SECRET_NAME", ""),
 		CACertSecretKey:           getEnv("CA_CERT_SECRET_KEY", "ca-certificates.crt"),
+		DirectRouting:             getEnvAsBool("DIRECT_ROUTING", false),
 		IdleTimeoutHours:          getEnvAsInt("IDLE_TIMEOUT_HOURS", 72),
 		ReaperCheckInterval:       getEnvAsDuration("REAPER_CHECK_INTERVAL", 15*time.Minute),
 	}

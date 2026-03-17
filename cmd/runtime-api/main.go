@@ -164,7 +164,10 @@ func main() {
 	authRouter.HandleFunc("/registry_prefix", handler.GetRegistryPrefix).Methods("GET")
 	authRouter.HandleFunc("/image_exists", handler.CheckImageExists).Methods("GET")
 
-	if cfg.ProxyBaseURL != "" {
+	if cfg.ProxyBaseURL != "" && !cfg.DirectRouting {
+		// Proxy mode: runtime API reverse-proxies /sandbox/{runtime_id}/... to the pod.
+		// In direct routing mode this handler is omitted — NGINX routes directly to the pod,
+		// so requests never reach the runtime API on /sandbox/... paths.
 		authRouter.PathPrefix("/sandbox/").HandlerFunc(handler.ProxySandbox)
 		logger.Info("Proxy mode enabled: sandbox URLs under %s/sandbox/{runtime_id}", cfg.ProxyBaseURL)
 	}
@@ -174,7 +177,9 @@ func main() {
 	logger.Info("Starting OpenHands Kubernetes Runtime API server on %s", addr)
 	logger.Info("Namespace: %s", cfg.Namespace)
 	logger.Info("Base Domain: %s", cfg.BaseDomain)
-	if cfg.ProxyBaseURL != "" {
+	if cfg.DirectRouting {
+		logger.Info("Direct routing enabled: ingress routes /sandbox/{runtime_id}/... directly to pod (no proxy hop)")
+	} else if cfg.ProxyBaseURL != "" {
 		logger.Info("Proxy Base URL: %s (ephemeral sandbox traffic via runtime API)", cfg.ProxyBaseURL)
 	}
 	logger.Info("Registry Prefix: %s", cfg.RegistryPrefix)

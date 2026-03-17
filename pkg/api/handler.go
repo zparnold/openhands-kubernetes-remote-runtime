@@ -660,7 +660,13 @@ func (h *Handler) buildRuntimeResponse(info *state.RuntimeInfo) types.RuntimeRes
 		LastTerminationReason:   info.LastTerminationReason,
 		LastTerminationExitCode: info.LastTerminationExitCode,
 	}
-	if h.config.ProxyBaseURL != "" {
+	if h.config.DirectRouting {
+		// Path-based direct routing: traffic goes ingress → pod, bypassing the proxy.
+		// URLs use the same /sandbox/{runtime_id} format so the frontend is unaffected.
+		base := fmt.Sprintf("https://%s", h.config.BaseDomain)
+		resp.URL = fmt.Sprintf("%s/sandbox/%s", base, info.RuntimeID)
+		resp.VSCodeURL = fmt.Sprintf("%s/sandbox/%s/vscode", base, info.RuntimeID)
+	} else if h.config.ProxyBaseURL != "" {
 		base := strings.TrimSuffix(h.config.ProxyBaseURL, "/")
 		resp.URL = fmt.Sprintf("%s/sandbox/%s", base, info.RuntimeID)
 		resp.VSCodeURL = fmt.Sprintf("%s/sandbox/%s/vscode", base, info.RuntimeID)
