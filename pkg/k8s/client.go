@@ -545,6 +545,16 @@ func (c *Client) createDirectRoutingIngresses(ctx context.Context, runtimeInfo *
 	for k, v := range c.config.SandboxIngressAnnotations {
 		baseAnnotations[k] = v
 	}
+	// Inject CORS annotations when an allow-origin is configured.
+	// These cannot go through SANDBOX_INGRESS_ANNOTATIONS because that list is
+	// comma-separated, which conflicts with the comma-separated method list required
+	// by cors-allow-methods. The runtime API injects them directly instead.
+	if c.config.DirectRoutingCORSAllowOrigin != "" {
+		baseAnnotations["nginx.ingress.kubernetes.io/enable-cors"] = "true"
+		baseAnnotations["nginx.ingress.kubernetes.io/cors-allow-origin"] = c.config.DirectRoutingCORSAllowOrigin
+		baseAnnotations["nginx.ingress.kubernetes.io/cors-allow-methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+		baseAnnotations["nginx.ingress.kubernetes.io/cors-allow-headers"] = "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization,X-Session-API-Key"
+	}
 
 	// --- Ingress 1: Agent + Workers (regex paths with prefix stripping) ---
 	agentAnnotations := make(map[string]string, len(baseAnnotations)+2)

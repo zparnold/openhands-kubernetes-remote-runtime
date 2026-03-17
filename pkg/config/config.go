@@ -64,6 +64,12 @@ type Config struct {
 	// bypassing the runtime API proxy. Reduces latency and eliminates WebSocket drops.
 	DirectRouting bool
 
+	// CORS origin injected into direct-routing sandbox ingresses. Cannot be set via
+	// SANDBOX_INGRESS_ANNOTATIONS because the annotation list is comma-separated, which
+	// conflicts with comma-separated HTTP method values in cors-allow-methods.
+	// Example: "https://openhands.example.com"
+	DirectRoutingCORSAllowOrigin string
+
 	// Idle timeout reaper configuration
 	IdleTimeoutHours    int           // Idle timeout in hours before reaping sandboxes (default: 72)
 	ReaperCheckInterval time.Duration // How often to check for idle sandboxes (default: 15 minutes)
@@ -99,6 +105,7 @@ func LoadConfig() *Config {
 		CACertSecretName:          getEnv("CA_CERT_SECRET_NAME", ""),
 		CACertSecretKey:           getEnv("CA_CERT_SECRET_KEY", "ca-certificates.crt"),
 		DirectRouting:             getEnvAsBool("DIRECT_ROUTING", false),
+		DirectRoutingCORSAllowOrigin: getEnv("DIRECT_ROUTING_CORS_ALLOW_ORIGIN", ""),
 		IdleTimeoutHours:          getEnvAsInt("IDLE_TIMEOUT_HOURS", 72),
 		ReaperCheckInterval:       getEnvAsDuration("REAPER_CHECK_INTERVAL", 15*time.Minute),
 	}
