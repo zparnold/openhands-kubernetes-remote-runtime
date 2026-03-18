@@ -717,15 +717,12 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	var backendPort int
 	if len(parts) == 2 && (parts[1] == "vscode" || strings.HasPrefix(parts[1], "vscode/")) {
 		backendPort = h.config.VSCodePort
-		if parts[1] == "vscode" {
-			backendRawPath = "/"
-		} else {
-			// Remove "vscode" prefix and ensure we don't create double slashes
-			backendRawPath = strings.TrimPrefix(parts[1], "vscode")
-			if !strings.HasPrefix(backendRawPath, "/") {
-				backendRawPath = "/" + backendRawPath
-			}
-		}
+		// Forward the complete path to the VSCode backend. openvscode-server is started
+		// with --server-base-path /sandbox/{runtime_id}/vscode, so it expects to receive
+		// the full path (e.g. /sandbox/{id}/vscode or /sandbox/{id}/vscode/static/...).
+		// Stripping the prefix would cause a 404 because the root "/" path does not match
+		// the configured server-base-path.
+		backendRawPath = path
 	} else {
 		backendPort = h.config.AgentServerPort
 		if len(parts) == 2 {

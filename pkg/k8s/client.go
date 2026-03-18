@@ -606,9 +606,15 @@ func (c *Client) createDirectRoutingIngresses(ctx context.Context, runtimeInfo *
 										},
 									},
 								},
-								// Agent server catch-all (must be last — least specific)
+								// Agent server catch-all (must be last — least specific).
+								// Explicitly excludes /vscode paths so they are handled by the
+								// per-sandbox VSCode ingress (port VSCodePort, no path rewrite).
+								// The use-regex annotation on this Ingress converts all paths on
+								// the same host to regex locations, removing the ^~ prefix priority
+								// of the VSCode PathTypePrefix ingress. The negative lookahead
+								// prevents the agent regex from capturing /vscode or /vscode/... paths.
 								{
-									Path:     fmt.Sprintf("/sandbox/%s(/|$)(.*)", runtimeID),
+									Path:     fmt.Sprintf("/sandbox/%s(/|$)((?!vscode(/|$)).*)", runtimeID),
 									PathType: &pathTypeImplementationSpecific,
 									Backend: networkingv1.IngressBackend{
 										Service: &networkingv1.IngressServiceBackend{
