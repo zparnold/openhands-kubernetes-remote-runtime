@@ -73,6 +73,15 @@ type Config struct {
 	// Idle timeout reaper configuration
 	IdleTimeoutHours    int           // Idle timeout in hours before reaping sandboxes (default: 72)
 	ReaperCheckInterval time.Duration // How often to check for idle sandboxes (default: 15 minutes)
+
+	// Node scoring: when enabled, the runtime API evaluates node load via the
+	// Kubernetes Metrics API before pod creation and sets a preferred scheduling
+	// hint for the least loaded node. Falls back to the default scheduler if
+	// metrics are unavailable or no nodes meet the criteria.
+	NodeScoringEnabled       bool   // Enable node scoring (default: false)
+	NodeScoringCPUThreshold  int    // Max CPU utilization % before excluding a node (default: 80)
+	NodeScoringMemThreshold  int    // Max memory utilization % before excluding a node (default: 80)
+	NodeScoringLabelSelector string // Optional label selector to limit eligible nodes (e.g. "pool=sandbox")
 }
 
 func LoadConfig() *Config {
@@ -108,6 +117,10 @@ func LoadConfig() *Config {
 		DirectRoutingCORSAllowOrigin: getEnv("DIRECT_ROUTING_CORS_ALLOW_ORIGIN", ""),
 		IdleTimeoutHours:          getEnvAsInt("IDLE_TIMEOUT_HOURS", 72),
 		ReaperCheckInterval:       getEnvAsDuration("REAPER_CHECK_INTERVAL", 15*time.Minute),
+		NodeScoringEnabled:        getEnvAsBool("NODE_SCORING_ENABLED", false),
+		NodeScoringCPUThreshold:   getEnvAsInt("NODE_SCORING_CPU_THRESHOLD", 80),
+		NodeScoringMemThreshold:   getEnvAsInt("NODE_SCORING_MEM_THRESHOLD", 80),
+		NodeScoringLabelSelector:  getEnv("NODE_SCORING_LABEL_SELECTOR", ""),
 	}
 }
 

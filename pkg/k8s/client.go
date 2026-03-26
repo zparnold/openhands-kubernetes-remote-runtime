@@ -10,6 +10,7 @@ import (
 
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/config"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/logger"
+	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/nodescore"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/state"
 	"github.com/zparnold/openhands-kubernetes-remote-runtime/pkg/types"
 	"golang.org/x/sync/singleflight"
@@ -24,6 +25,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	metricsClientset "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 // ddTracingEnabled caches whether Datadog tracing is active (DD_AGENT_HOST is set).
@@ -31,9 +33,10 @@ var ddTracingEnabled = os.Getenv("DD_AGENT_HOST") != ""
 
 // Client wraps Kubernetes client operations
 type Client struct {
-	clientset *kubernetes.Clientset
-	config    *config.Config
-	namespace string
+	clientset  *kubernetes.Clientset
+	config     *config.Config
+	namespace  string
+	nodeScorer *nodescore.Scorer // nil when scoring is disabled or metrics unavailable
 
 	// Pod status cache: deduplicates concurrent K8s List calls and caches results briefly.
 	podCacheMu   sync.RWMutex
@@ -70,10 +73,29 @@ func NewClient(cfg *config.Config) (*Client, error) {
 
 	logger.Debug("NewClient: Kubernetes client created successfully for namespace %s", cfg.Namespace)
 
+	var scorer *nodescore.Scorer
+	if cfg.NodeScoringEnabled {
+		metricsCS, metricsErr := metricsClientset.NewForConfig(k8sConfig)
+		if metricsErr != nil {
+			logger.Info("Node scoring: failed to create metrics client, scoring disabled: %v", metricsErr)
+		} else {
+			scorer = nodescore.NewScorer(
+				metricsCS.MetricsV1beta1().NodeMetricses(),
+				clientset.CoreV1().Nodes(),
+				cfg.NodeScoringCPUThreshold,
+				cfg.NodeScoringMemThreshold,
+				cfg.NodeScoringLabelSelector,
+			)
+			logger.Info("Node scoring enabled (CPU threshold: %d%%, memory threshold: %d%%)",
+				cfg.NodeScoringCPUThreshold, cfg.NodeScoringMemThreshold)
+		}
+	}
+
 	return &Client{
 		clientset:   clientset,
 		config:      cfg,
 		namespace:   cfg.Namespace,
+		nodeScorer:  scorer,
 		podCacheTTL: 3 * time.Second,
 	}, nil
 }
@@ -320,6 +342,14 @@ func (c *Client) createPod(ctx context.Context, req *types.StartRequest, runtime
 			SubPath:   secretKey,
 			ReadOnly:  true,
 		})
+	}
+
+	// Apply node scoring preference if scorer is available.
+	if c.nodeScorer != nil {
+		if selectedNode := c.nodeScorer.SelectNode(ctx); selectedNode != "" {
+			logger.Debug("createPod: node scoring selected %s for pod %s", selectedNode, runtimeInfo.PodName)
+			nodescore.ApplyNodePreference(pod, selectedNode)
+		}
 	}
 
 	_, err := c.clientset.CoreV1().Pods(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
