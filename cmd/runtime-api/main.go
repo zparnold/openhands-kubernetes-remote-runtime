@@ -164,11 +164,11 @@ func main() {
 	authRouter.HandleFunc("/registry_prefix", handler.GetRegistryPrefix).Methods("GET")
 	authRouter.HandleFunc("/image_exists", handler.CheckImageExists).Methods("GET")
 
+	// Always register the sandbox proxy handler so that internal (in-cluster)
+	// traffic can reach sandboxes via http://openhands-runtime-api/sandbox/{id}/...
+	// even when direct routing is enabled for external/frontend traffic.
+	authRouter.PathPrefix("/sandbox/").HandlerFunc(handler.ProxySandbox)
 	if cfg.ProxyBaseURL != "" && !cfg.DirectRouting {
-		// Proxy mode: runtime API reverse-proxies /sandbox/{runtime_id}/... to the pod.
-		// In direct routing mode this handler is omitted — NGINX routes directly to the pod,
-		// so requests never reach the runtime API on /sandbox/... paths.
-		authRouter.PathPrefix("/sandbox/").HandlerFunc(handler.ProxySandbox)
 		logger.Info("Proxy mode enabled: sandbox URLs under %s/sandbox/{runtime_id}", cfg.ProxyBaseURL)
 	}
 
