@@ -550,13 +550,14 @@ func (c *Client) createSubdomainIngress(ctx context.Context, runtimeInfo *state.
 
 // createDirectRoutingIngresses creates two path-based ingresses on the shared BaseDomain host.
 // Ingress 1 (agent + workers): regex paths with rewrite-target to strip the /sandbox/{id} prefix.
-// Ingress 2 (vscode): prefix path without rewrite — VSCode uses --server-base-path so it expects
-// the full path to be preserved.
+// Ingress 2 (vscode): regex path with rewrite-target that preserves the full path for VSCode's
+// --server-base-path setting.
 //
 // Two separate Ingress resources are required because rewrite-target is an ingress-level annotation
 // in the NGINX ingress controller; a single ingress cannot have different rewrites for different paths.
-// NGINX gives prefix locations (^~) priority over regex locations, so the VSCode ingress will
-// correctly intercept /sandbox/{id}/vscode/... before the agent catch-all regex matches it.
+// Both ingresses use regex paths. The NGINX ingress controller sorts regex locations by path length
+// (longest first), so the VSCode path /sandbox/{id}/vscode(/|$)(.*) is always tried before the
+// shorter agent catch-all /sandbox/{id}(/|$)(.*), ensuring VSCode requests reach the VSCode port.
 func (c *Client) createDirectRoutingIngresses(ctx context.Context, runtimeInfo *state.RuntimeInfo) error {
 	labels := map[string]string{
 		"app":        "openhands-runtime",
@@ -637,14 +638,10 @@ func (c *Client) createDirectRoutingIngresses(ctx context.Context, runtimeInfo *
 									},
 								},
 								// Agent server catch-all (must be last — least specific).
-								// Explicitly excludes /vscode paths so they are handled by the
-								// per-sandbox VSCode ingress (port VSCodePort, no path rewrite).
-								// The use-regex annotation on this Ingress converts all paths on
-								// the same host to regex locations, removing the ^~ prefix priority
-								// of the VSCode PathTypePrefix ingress. The negative lookahead
-								// prevents the agent regex from capturing /vscode or /vscode/... paths.
+								// VSCode paths are handled by the separate VSCode ingress which
+								// has a longer regex path, so NGINX tries it first (longest match).
 								{
-									Path:     fmt.Sprintf("/sandbox/%s(/|$)((?!vscode(/|$)).*)", runtimeID),
+									Path:     fmt.Sprintf("/sandbox/%s(/|$)(.*)", runtimeID),
 									PathType: &pathTypeImplementationSpecific,
 									Backend: networkingv1.IngressBackend{
 										Service: &networkingv1.IngressServiceBackend{
@@ -676,14 +673,18 @@ func (c *Client) createDirectRoutingIngresses(ctx context.Context, runtimeInfo *
 		return fmt.Errorf("create agent ingress: %w", err)
 	}
 
-	// --- Ingress 2: VSCode (prefix path, no rewrite) ---
-	// pathType Prefix generates a ^~ location in NGINX, which takes priority over regex
-	// locations from the agent ingress, so /sandbox/{id}/vscode/... hits VSCode, not the agent.
-	pathTypePrefix := networkingv1.PathTypePrefix
-	vscodeAnnotations := make(map[string]string, len(baseAnnotations))
+	// --- Ingress 2: VSCode (regex path, rewrite preserves full path) ---
+	// Uses regex so NGINX ingress controller sorts by path length (longest first).
+	// The VSCode path /sandbox/{id}/vscode(/|$)(.*) is always longer than the agent
+	// catch-all /sandbox/{id}(/|$)(.*), so VSCode requests match here first.
+	// The rewrite-target reconstructs the full path that VSCode expects (it is started
+	// with --server-base-path /sandbox/{id}/vscode).
+	vscodeAnnotations := make(map[string]string, len(baseAnnotations)+2)
 	for k, v := range baseAnnotations {
 		vscodeAnnotations[k] = v
 	}
+	vscodeAnnotations["nginx.ingress.kubernetes.io/use-regex"] = "true"
+	vscodeAnnotations["nginx.ingress.kubernetes.io/rewrite-target"] = fmt.Sprintf("/sandbox/%s/vscode/$2", runtimeID)
 	vscodeIngress := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        runtimeInfo.IngressName + "-vscode",
@@ -700,8 +701,8 @@ func (c *Client) createDirectRoutingIngresses(ctx context.Context, runtimeInfo *
 						HTTP: &networkingv1.HTTPIngressRuleValue{
 							Paths: []networkingv1.HTTPIngressPath{
 								{
-									Path:     fmt.Sprintf("/sandbox/%s/vscode", runtimeID),
-									PathType: &pathTypePrefix,
+									Path:     fmt.Sprintf("/sandbox/%s/vscode(/|$)(.*)", runtimeID),
+									PathType: &pathTypeImplementationSpecific,
 									Backend: networkingv1.IngressBackend{
 										Service: &networkingv1.IngressServiceBackend{
 											Name: runtimeInfo.ServiceName,
