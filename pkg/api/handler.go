@@ -80,9 +80,20 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// isSandboxHealthCheck returns true for proxied health-check paths (e.g. /sandbox/{id}/alive)
+// so they can be excluded from request logging to reduce noise.
+func isSandboxHealthCheck(path string) bool {
+	return strings.HasSuffix(path, "/alive")
+}
+
 // LoggingMiddleware logs requests
 func (h *Handler) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isSandboxHealthCheck(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		start := time.Now()
 		logger.Info("Started %s %s", r.Method, r.URL.Path)
 
