@@ -784,8 +784,10 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 	// Use a transport with ResponseHeaderTimeout to prevent hanging when backend pods
 	// never respond (e.g. pod not yet ready, crashed). The default transport has no such
 	// timeout, which caused 742+ second hangs observed in Datadog.
+	// Set to 300s to accommodate slow conversation creation (agent-server does heavy init:
+	// git clones, skill loading, MCP server startup) which can exceed 120s.
 	proxyTransport := http.DefaultTransport.(*http.Transport).Clone()
-	proxyTransport.ResponseHeaderTimeout = 120 * time.Second
+	proxyTransport.ResponseHeaderTimeout = 300 * time.Second
 	proxy.Transport = httptrace.WrapRoundTripper(proxyTransport)
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = target.Scheme
