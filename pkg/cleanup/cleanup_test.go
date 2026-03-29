@@ -99,6 +99,45 @@ func TestShouldCleanupRuntime(t *testing.T) {
 			expectedCleanup: false,
 			expectedReason:  "",
 		},
+		{
+			name: "Pod not found but runtime recently created (grace period)",
+			runtime: &state.RuntimeInfo{
+				RuntimeID: "test7",
+				Status:    types.StatusPending,
+				CreatedAt: time.Now().Add(-10 * time.Second), // 10 seconds ago
+			},
+			podStatus: &k8s.PodStatusInfo{
+				Status: types.PodStatusNotFound,
+			},
+			expectedCleanup: false,
+			expectedReason:  "",
+		},
+		{
+			name: "Pod not found and runtime old (past grace period)",
+			runtime: &state.RuntimeInfo{
+				RuntimeID: "test8",
+				Status:    types.StatusRunning,
+				CreatedAt: time.Now().Add(-5 * time.Minute), // 5 minutes ago
+			},
+			podStatus: &k8s.PodStatusInfo{
+				Status: types.PodStatusNotFound,
+			},
+			expectedCleanup: true,
+			expectedReason:  "pod_not_found",
+		},
+		{
+			name: "Pending runtime within grace period even if pod exists",
+			runtime: &state.RuntimeInfo{
+				RuntimeID: "test9",
+				Status:    types.StatusPending,
+				CreatedAt: time.Now().Add(-5 * time.Second), // 5 seconds ago
+			},
+			podStatus: &k8s.PodStatusInfo{
+				Status: types.PodStatusRunning,
+			},
+			expectedCleanup: false,
+			expectedReason:  "",
+		},
 	}
 
 	for _, tt := range tests {

@@ -191,6 +191,16 @@ func (s *Service) runCleanup(ctx context.Context) {
 func (s *Service) shouldCleanupRuntime(runtime *state.RuntimeInfo, podStatus *k8s.PodStatusInfo) (bool, string) {
 	now := time.Now()
 
+	// Grace period: never clean up runtimes that are still pending or were
+	// created very recently.  POST /start adds the runtime to state before
+	// the pod exists in K8s, so a concurrent cleanup cycle would see
+	// "pod_not_found" and delete the pod moments after it is created.
+	// A 60-second grace window prevents this race.
+	const creationGracePeriod = 60 * time.Second
+	if runtime.Status == types.StatusPending || now.Sub(runtime.CreatedAt) < creationGracePeriod {
+		return false, ""
+	}
+
 	// Pod no longer exists — clean up orphaned services/ingresses immediately.
 	if podStatus.Status == types.PodStatusNotFound {
 		return true, "pod_not_found"
