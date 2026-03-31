@@ -805,6 +805,16 @@ func (h *Handler) ProxySandbox(w http.ResponseWriter, r *http.Request) {
 		if v := r.Header.Get("X-Session-API-Key"); v != "" {
 			req.Header.Set("X-Session-API-Key", v)
 		}
+		// Forward W3C Baggage from the OpenHands app and enrich with runtime context.
+		// The OpenHands app injects user_id, trigger, org_id, etc. as the authoritative
+		// source; we add runtime_id and session_id that only the runtime API knows.
+		incomingBaggage := r.Header.Get("Baggage")
+		runtimeBaggage := fmt.Sprintf("runtime_id=%s,session_id=%s", runtimeID, runtimeInfo.SessionID)
+		if incomingBaggage != "" {
+			req.Header.Set("Baggage", incomingBaggage+","+runtimeBaggage)
+		} else {
+			req.Header.Set("Baggage", runtimeBaggage)
+		}
 	}
 
 	// Rewrite Set-Cookie and Location headers to use the correct path for the proxy
